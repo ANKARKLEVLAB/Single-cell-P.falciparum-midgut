@@ -1,0 +1,709 @@
+---
+title: "Zygote_Mubasher090321"
+author: "Mubasher Mohammed"
+date: "9/3/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+library(readr)
+library(tibble)
+library(Seurat)
+library(dplyr)
+library(Matrix)
+library(gtable)
+library(grid)
+library(gridExtra)
+library(rlang)
+#library(org.Mm.eg.db)
+#library(org.Hs.eg.db)
+#library(AnnotationDbi)
+#library(annotate)
+library(ggplot2)
+#library(biomaRt)
+library(tidyr)
+library(plotrix)
+#library(circlize)
+library(plotly)
+library(pheatmap)
+#library(dendextend)
+#library(ComplexHeatmap)
+library(forcats)
+#suppressMessages(require(biomaRt))
+#library(monocle)
+#library(topGO)
+library(stringr)
+library(reshape2)
+#library(EnhancedVolcano)
+library(clusterProfiler)
+library(DOSE)
+library(enrichplot)
+library(org.Pf.plasmo.db)
+#library(wordcloud)
+#library(pathview)
+#library(organism, character.only = TRUE)
+```
+
+
+```{r}
+
+ds.counts <- read.csv("~/Desktop/Zygote/zygote.csv", sep=";", row.names=1, header = TRUE, check.names = FALSE) 
+
+phenotype <- read.csv("~/Desktop/Zygote/phenotype.csv", row.names=1, sep=";", header = TRUE, check.names = FALSE)
+
+#this is the new PlasmoDB annotation
+ann <- plasmodb_gene_name <- read_delim("~/Desktop/Zygote/ann_50v.csv", ";", escape_double = FALSE, trim_ws = TRUE)
+
+#ann <- plasmodb_gene_name <- read_delim("~/Desktop/Zygote/plasmodb_gene_name copy.csv", ";", escape_double = FALSE, trim_ws = TRUE)
+#rownames(ann) <- ann$`Gene ID`
+ds.counts <- as.matrix(ds.counts)
+total_count_per_cell <- colSums(ds.counts)
+phenotype$Timepoint <- plyr::mapvalues(phenotype$Timepoint, c('0','2','4','8','12','20') , c('0h','2h','4h','8h','12h','20h'))
+order_tp <- c("0h", "2h", "4h", "8h", "12h", "20h")
+phenotype$Timepoint <- factor(phenotype$Timepoint, levels = order_tp)
+sort(phenotype$Timepoint)
+```
+
+annotation with genes names:
+```{r}
+m <- match(rownames(ds.counts), ann$`Gene ID`)
+ann$unique_gene_name <-  NA 
+ann$unique_gene_name[is.na(ann$`Gene Name or Symbol`)] <- make.unique(as.vector(ann$`Gene ID`[is.na(ann$`Gene Name or Symbol`)]))      
+ann$unique_gene_name[!is.na(ann$`Gene Name or Symbol`)] <- make.unique(as.vector(ann$`Gene Name or Symbol`[!is.na(ann$`Gene Name or Symbol`)]))  
+ann <- tibble::tibble(ann)
+attr(ann, "row.names") <- ann$`Gene ID`
+#rownames(ann) <- ann$`Gene ID`
+#####################################
+ds.counts <- ds.counts[intersect(rownames(ds.counts), rownames(ann)), ]
+newnames <- ann[rownames(ds.counts), ]$unique_gene_name
+rownames(ds.counts) <- newnames
+```
+
+annotation with genes names and accno. used incase of not annotated genes
+```{r}
+######################################  incase you need the gene name + acc No. 
+m <- match(rownames(ds.counts), ann$`Gene ID`)
+newnames <- apply(cbind(as.vector(ann$`Gene Name or Symbol`)[m],rownames(ds.counts)),1,paste,collapse=":")
+rownames(ds.counts)<-newnames
+```
+
+create seurat-obj
+```{r}
+ds.ds <- CreateSeuratObject(ds.counts, project = "zygote", assay = "RNA", min.cells = 2, min.features = 600, meta.data = phenotype)
+```
+
+regular QC plots 
+
+```{r}
+col_tp <- setNames(c('green3','red3','blue3','orange3', 'purple3','magenta3' ), c('0h','2h', '4h','8h','12h','20h'))
+```
+
+
+
+
+```{r}
+mito.genes <- rownames(ds.counts)[grep("mito",rownames(ds.counts))]
+head(mito.genes)
+percent.mito <- colSums(ds.counts [mito.genes,]) / total_count_per_cell
+ds.ds <- AddMetaData(ds.ds, percent.mito, "percent.mito")
+VlnPlot(object = ds.ds, c("nCount_RNA", "nFeature_RNA", "percent.mito"), group.by = "orig.ident")
+VlnPlot(object = ds.ds, c("nCount_RNA", "nFeature_RNA", "percent.mito"), group.by = "Timepoint")
+
+col_tp <- setNames(c('green3','red3','blue3','orange3', 'purple3','magenta3' ), c('0h','2h', '4h','8h','12h','20h'))
+
+VlnPlot(object = ds.ds, c("nCount_RNA"), group.by = "Timepoint", cols = col_tp, pt.size = 1.5) + theme(axis.text.x = element_text(angle = 45, hjust=1)) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 20, angle = 45, vjust = 1, hjust = 1),  axis.text.y = element_text(colour = "black", size = 20), legend.text = element_text(size = 15, colour ="black"),legend.title = element_text(size = 12, face = "normal"),panel.background = element_blank(), panel.border = element_rect(colour = "white", fill = NA, size = 1.2), legend.position = "right") + labs(x= "Time points", y="nCount_RNA")
+
+VlnPlot(object = ds.ds, c("nFeature_RNA"), group.by = "Timepoint", cols = col_tp, pt.size = 1.5) + theme(axis.text.x = element_text(angle = 45, hjust=1)) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 20, angle = 45, vjust = 1, hjust = 1),  axis.text.y = element_text(colour = "black", size = 20), legend.text = element_text(size = 15, colour ="black"),legend.title = element_text(size = 12, face = "normal"),panel.background = element_blank(), panel.border = element_rect(colour = "white", fill = NA, size = 1.2), legend.position = "right") + labs(x= "Time points", y="Number of genes")
+
+
+VlnPlot(object = ds.ds, c("nCount_RNA", "nFeature_RNA", "percent.mito"), group.by = "Groups")
+
+```
+
+```{r}
+custom_fill_colors = c(RColorBrewer::brewer.pal(9, "Oranges")[2], 
+                       RColorBrewer::brewer.pal(9, "Reds")[6], 
+                       RColorBrewer::brewer.pal(9, "Oranges")[3], 
+                       RColorBrewer::brewer.pal(9, "Reds")[7],
+                       RColorBrewer::brewer.pal(9, "Reds")[8],
+                       RColorBrewer::brewer.pal(9, "Oranges")[4],
+                       RColorBrewer::brewer.pal(9, "Reds")[9],
+                       RColorBrewer::brewer.pal(9, "Oranges")[5],
+                       RColorBrewer::brewer.pal(9, "Blues")[4:9])
+custom_fill_colors_2 = c(RColorBrewer::brewer.pal(9, "Blues"))
+cold <- colorRampPalette(c('#f7fcf0','#41b6c4','#253494','#081d58','#081d58'))
+warm <- colorRampPalette(c('#ffffb2','#fecc5c','#e31a1c','#800026','#800026'))
+mypalette <- c(rev(warm(50)))
+#mypalette <- c(rev(cold(21)), warm(20))
+```
+
+
+
+comparing mRNA counts gene counts with NFFG (0h)
+
+
+Compute the relative expression of each gene per cell
+```{r}
+rel_expression <- t( t(ds.ds@assays$RNA@counts) / Matrix::colSums(ds.ds@assays$RNA@counts)) * 100
+most_expressed <- sort(Matrix::rowSums( rel_expression ),T)[20:1] / ncol(ds.ds@meta.data)
+
+par(mfrow=c(1,2),mar=c(4,6,1,1))
+boxplot( as.matrix(t(rel_expression[names(most_expressed),])),cex=.1, las=1, xlab="% total count per cell",col=scales::hue_pal()(20)[20:1],horizontal=TRUE)
+```
+
+```{r}
+ds.ds <- NormalizeData(object = ds.ds, normalization.method = "LogNormalize",
+scale.factor = 1e5)
+```
+
+```{r}
+ds.ds <- FindVariableFeatures(object = ds.ds, mean.function = ExpMean, dispersion.function = LogVMR, x.low.cutoff = 0.005, x.high.cutoff = 2, y.cutoff = 0.005)
+top10 <- head(VariableFeatures(ds.ds), 10)
+LabelPoints(plot = VariableFeaturePlot(ds.ds), points = top10, repel = TRUE)
+LabelPoints(plot = VariableFeaturePlot(ds.ds), points = top10, repel = TRUE, xnudge = 0, ynudge = 0)
+ds.ds <- ScaleData(object = ds.ds, vars.to.regress = c("nCount_RNA", "nFeature_RNA"))
+
+```
+
+
+
+
+## identifying list of variable genes for each Timepoint/Groups
+
+```{r}
+ds.ds.list <- SplitObject(ds.ds, split.by = "Groups")
+for (i in 1:length(ds.ds.list)) {
+ds.ds.list[[i]] <- NormalizeData(ds.ds.list[[i]], verbose = FALSE)
+ds.ds.list[[i]] <- FindVariableFeatures(ds.ds.list[[i]], selection.method = "vst", nfeatures = 2000,verbose = FALSE)}
+hvgs_per_dataset <- lapply(ds.ds.list, function(x) { x@assays$RNA@var.features })
+venn::venn(hvgs_per_dataset,opacity = .4,zcolor = scales::hue_pal()(3),cexsn = 1,cexil = 1,lwd=1,col="white",frame=F,borders = NA, ilcs = 1)
+```
+
+```{r}
+ds.ds.list <- SplitObject(ds.ds, split.by = "Timepoint")
+for (i in 1:length(ds.ds.list)) {
+ds.ds.list[[i]] <- NormalizeData(ds.ds.list[[i]], verbose = FALSE)
+ds.ds.list[[i]] <- FindVariableFeatures(ds.ds.list[[i]], selection.method = "vst", nfeatures = 2000,verbose = FALSE)}
+hvgs_per_dataset <- lapply(ds.ds.list, function(x) { x@assays$RNA@var.features })
+venn::venn(hvgs_per_dataset,opacity = .4,zcolor = scales::hue_pal()(3),cexsn = 1,cexil = 1,lwd=1,col="white",frame=F,borders = NA)
+
+```
+
+```{r}
+HVFInfo(object = ds.ds[["RNA"]], selection.method = 'vst')[1:5, ]
+
+```
+
+
+```{r}
+ds.ds <- ScaleData(ds.ds, verbose = FALSE,assay = "RNA")
+ds.ds <- RunPCA(ds.ds, npcs = 50, verbose = FALSE, assay = "RNA", reduction.name = "PCA_on_RNA")
+ds.ds <- RunUMAP(ds.ds, reduction = "PCA_on_RNA", dims = 1:20,reduction.name = "UMAP_on_RNA")
+ds.ds <- RunTSNE(ds.ds, reduction = "PCA_on_RNA", dims = 1:20,reduction.name = "TSNE_on_RNA")
+
+```
+
+```{r}
+head(Embeddings(ds.ds, reduction = "PCA_on_RNA")[, 1:5])
+head(Loadings(ds.ds, reduction = "PCA_on_RNA")[, 1:5])
+head(Stdev(ds.ds, reduction = "PCA_on_RNA"))
+ProjectDim(ds.ds, reduction = "PCA_on_RNA")
+```
+
+# If you wold like to observe genes that are strongly correlated with the PC1-2-3 coordinate
+No. of genes to plot =30 No. of cells to plot 10 in each PC
+```{r}
+DimHeatmap(ds.ds, dims = c(1,2,3), nfeatures = 30, cells = 10, reduction = "PCA_on_RNA", disp.min = -2.5, disp.max = NULL, balanced = TRUE, projected = FALSE, ncol = NULL, fast = TRUE, raster = TRUE, slot = "scale.data", assays = "RNA", combine = TRUE)
+```
+
+Explore how the PC dimensions is distributed across timepoints
+```{r}
+VlnPlot(ds.ds, features = "PC_1", group.by = "Timepoint")
+VlnPlot(ds.ds, features = "PC_2", group.by = "Timepoint")
+VlnPlot(ds.ds, features = "PC_3", group.by = "Timepoint")
+```
+
+explore sexual development markers across the timepoints validation of genes 
+
+```{r}
+VlnPlot(ds.ds, features = c("G27/25:PF3D7-1302100","P230:PF3D7-0209000","CDPK4:PF3D7-0717500","P25:PF3D7-1031000"), group.by = "Timepoint", cols = col_tp, ncol = 2) + theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+VlnPlot(ds.ds, features = c("P28:PF3D7-1030900", "CTRP:PF3D7-0315200", "WARP:PF3D7-0801300", "SOAP:PF3D7-1404300"), group.by = "Timepoint", cols = col_tp, ncol = 2)+  theme(axis.text.x = element_text(angle = 45, hjust=1))
+
+VlnPlot(ds.ds, features = c("TRAP:PF3D7-1335900", "SPECT1:PF3D7-1342500", "CSP:PF3D7-0304600", "MSP1:PF3D7-0930300"), group.by = "Timepoint", cols = col_tp, ncol = 2)+ theme(axis.text.x = element_text(angle = 45, hjust=1))
+```
+
+exporting png plots
+```{r}
+png(filename = "~/Desktop/Zygote/Figs/Pseudotime/new_figs/zygote_figs/Validation_C.png", width = 20, height= 10, unit = "cm", res= 300)
+print(p5)
+dev.off()
+```
+
+Clustering
+```{r}
+#play around withe the parameters
+ds.ds <- RunTSNE(ds.ds, reduction = "PCA_on_RNA", seed.use = 0, dim.embed = 3, dims = 1:20, reduction.name = "TSNE_on_PCA", perplexity=17, max_iter=1000, theta=0.5, eta=200, num_threads=30)
+
+ds.ds <- RunUMAP(ds.ds, reduction = "PCA_on_RNA", dims = 1:20,reduction.name = "UMAP_on_PCA", n.components=10, n.neighbors=30,
+n.epochs=200, min.dist=0.02, learning.rate=1, spread=3)
+
+
+```
+
+```{r}
+DimPlot(ds.ds, pt.size = 3, reduction = "UMAP_on_RNA", group.by = "Timepoint")
+DimPlot(ds.ds, pt.size = 3, reduction = "UMAP_on_PCA", group.by = "Groups")
+```
+
+
+Using sexual stages development markers validate in UMAP  
+```{r}
+FeaturePlot(ds.ds, reduction = "UMAP_on_PCA", dims = 1:2, features = c("G27/25:PF3D7-1302100","P230:PF3D7-0209000","CDPK4:PF3D7-0717500","P25:PF3D7-1031000"),ncol = 4,order = T, cols = c("grey", "red"))
+```
+
+
+Meiosis markers
+```{r}
+FeaturePlot(ds.ds, reduction = "UMAP_on_PCA",dims = 1:2, features = c("DOZI:PF3D7-0320800","NEK2:PF3D7-0525900","PlasMei2:PF3D7-0623400","NEK4:PF3D7-0719200","DMC1:PF3D7-0816800","TRZ:PF3D7-1209300", "MDV1:PF3D7-1216500", "P48/45:PF3D7-1346700", "GEX1:PF3D7-1363800", "MISFIT:PF3D7-1403800", "CITH:PF3D7-1474900"),ncol = 4,order = T, cols = c("grey", "red"))
+```
+
+
+Do Cellcycle marjer genes- we havent used that so far
+```{r}
+FeaturePlot(ds.ds, reduction = "UMAP_on_PCA",dims = 1:2, features = c("GARP:PF3D7-0113000"),ncol = 4,order = T, cols = c("grey", "red"))
+
+```
+
+
+```{r}
+VizDimLoadings(ds.ds, dims = 1:3, reduction = "PCA_on_RNA",ncol = 5,balanced = T)
+```
+
+```{r}
+ElbowPlot(ds.ds, reduction = "PCA_on_RNA", ndims = 50)
+```
+
+
+
+cluster the cells
+```{r}
+ds.ds <- FindNeighbors(ds.ds, reduction = "UMAP_on_PCA", dims = 1:10)
+ds.ds <- FindClusters(ds.ds, resolution = 0.8) #0.8 default  seq(0.1,2,0.1)
+head(Idents(ds.ds), 10)
+DimPlot(ds.ds, reduction = "UMAP_on_PCA", group.by = "Timepoint", label = T)
+DimPlot(ds.ds, reduction = "UMAP_on_PCA", group.by = "seurat_clusters", label = T)
+```
+
+rename clusters
+```{r}
+
+ds.ds@meta.data$seurat_clusters <- plyr::mapvalues(ds.ds@meta.data$seurat_clusters, c('0','1','2','3','4') , c('C_1','C_0','C_2','C_3','C_4'))
+order_clusters <- c('C_0','C_1','C_2','C_3','C_4')
+ds.ds@meta.data$seurat_clusters <- factor(ds.ds@meta.data$seurat_clusters, levels = order_clusters)
+sort(ds.ds@meta.data$seurat_clusters)
+
+```
+
+
+
+
+find markers for each cluster
+```{r}
+c0.markers <- FindMarkers(ds.ds, ident.1 = 1, min.pct = 0.25, only.pos = F)
+c1.markers <- FindMarkers(ds.ds, ident.1 = 0, min.pct = 0.25, only.pos = F)
+c2.markers <- FindMarkers(ds.ds, ident.1 = 2, min.pct = 0.25, only.pos = F)
+c3.markers <- FindMarkers(ds.ds, ident.1 = 3, min.pct = 0.25, only.pos = F)
+c4.markers <- FindMarkers(ds.ds, ident.1 = 4, min.pct = 0.25, only.pos = F)
+#c5.markers <- FindMarkers(ds.ds, ident.1 = 5, min.pct = 0.25, only.pos = F)
+#c6.markers <- FindMarkers(ds.ds, ident.1 = 6, min.pct = 0.25, only.pos = F)
+```
+
+
+
+UMAPs plotting
+```{r}
+cluster_order <- c('cluster_0','cluster_1','cluster_2', 'cluster_3','cluster_4') #,'cluster_5','cluster_6')
+col_cluster <- setNames(c('red3','orange','green3','purple3','blue3','magenta','#C16200','#71226e'), cluster_order)
+p1 <- DimPlot(ds.ds, reduction = "UMAP_on_PCA", pt.size = 3, group.by = "Timepoint", label = T)+scale_color_manual(values = col_tp)+ theme_bw()+theme(legend.text = element_text(size=15), axis.text = element_text(size = 15),axis.title = element_text(size = 15))+labs(x='UMAP1',y="UMAP2")
+p2 <- DimPlot(ds.ds, reduction = "UMAP_on_PCA", pt.size = 3, group.by = "seurat_clusters", label = T)+scale_color_manual(values = col_cluster)+ theme_bw()+theme(legend.text = element_text(size=15), axis.text = element_text(size = 15),axis.title = element_text(size = 15))+labs(x='UMAP1',y="UMAP2")
+```
+
+subsetting clusters excluding (0h) NFFG
+```{r} 
+Idents(ds.ds) <- "Timepoint"
+ds.ds_subset <- subset(ds.ds, idents = c("2h", "4h", "8h", "12h", "20h"))
+#ds.ds_subset <- readRDS(file = "~/Desktop/Zygote/figs/UMAPS/objects/seurat_subset.RDS")
+
+p6 <- DimPlot(ds.ds_subset, reduction = "UMAP_on_PCA", pt.size = 4, group.by = "Timepoint", label = F)+scale_color_manual(values = col_tp)+ theme_classic()+theme(legend.text = element_text(size=15), axis.text = element_text(size = 15),axis.title = element_text(size = 15), legend.title = element_text(size = 12, face = "bold"))+labs(x='UMAP1',y="UMAP2") + labs(color='Time points')   
+
+p7 <- DimPlot(ds.ds_subset, reduction = "UMAP_on_PCA", pt.size = 4, group.by = "seurat_clusters", label = F)+scale_color_manual(values = col_cluster)+ theme_classic()+theme(legend.text = element_text(size=15), axis.text = element_text(size = 15),axis.title = element_text(size = 15), legend.title = element_text(size = 12, face = "bold"))+labs(x='UMAP1',y="UMAP2") + labs(color='Clusters') 
+saveRDS(ds.ds_subset, file = "~/Desktop/Zygote/figs/UMAPS/seurat_subset.RDS")
+
+```
+
+
+```{r}
+stress <- c("PF3D7-1445000:PF3D7-1445000", "GRP94:PF3D7-1222300", "PF3D7-1119200:PF3D7-1119200", "HSP90:PF3D7-0708400", "TCTP:PF3D7-0511000", "PF3D7-1241900:PF3D7-1241900", "HSP90:PF3D7-1443900", "PK4:PF3D7-0628200", "PF3D7-0525400:PF3D7-0525400", "nPrx:PF3D7-1027300", "RNF5:PF3D7-0627300", "TRXR:PF3D7-0923800", "PF3D7-0213500:PF3D7-0213500", "1-CysPxn:PF3D7-0802200", "DHX36:PF3D7-0821300", "eIK1:PF3D7-1444500")
+
+DotPlot(ds.ds_subset, features = stress, group.by = "seurat_clusters", cols = c("lightblue", "darkgreen"), dot.scale = 20, scale = TRUE, col.min = 0, col.max = 2)+ xlab("Genes") + ylab("Seurat_clusters") + theme(axis.text.x = element_text(angle = 45, hjust=1)) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 15, face = "bold", angle = 45, vjust = 1, hjust = 1),  axis.text.y = element_text(colour = "black", face = "bold", size = 15, angle = 30), legend.text = element_text(size = 10, face ="bold", colour ="black"),legend.title = element_text(size = 12, face = "bold"),panel.background = element_blank(), panel.border = element_rect(colour = "white", fill = NA, size = 1.2), legend.position = "right")
+
+```
+
+
+comparing NFFG vs clusters stress and apoptosis
+
+
+
+```{r}
+meta_nf_2 <- read.csv(file = "~/Desktop/Zygote/Figs/UMAPS/meta_nf_2.csv", sep = ";", row.names = 1, header = T)
+data_nf <- ds.ds@assays$RNA@data
+```
+
+
+```{r}
+ds.nf <- CreateSeuratObject(data_nf, project = "nffg", assay = "RNA", meta.data = meta_nf_2)
+```
+
+```{r}
+stress_nffg <- c("PF3D7-1445000:PF3D7-1445000", "GRP94:PF3D7-1222300", "PF3D7-1119200:PF3D7-1119200", "HSP90:PF3D7-0708400", "TCTP:PF3D7-0511000", "PF3D7-1241900:PF3D7-1241900", "HSP90:PF3D7-1443900", "PK4:PF3D7-0628200", "PF3D7-0525400:PF3D7-0525400", "nPrx:PF3D7-1027300", "RNF5:PF3D7-0627300")
+
+DotPlot(ds.nf, features = stress_nffg, group.by = "seurat_clusters", cols = c("lightblue", "darkgreen"), dot.scale = 20, scale = TRUE, col.min = 0, col.max = 2)+ xlab("Stress Genes") + ylab("NFFG vs C_3") + theme(axis.text.x = element_text(angle = 45, hjust=1)) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 15, face = "bold", angle = 45, vjust = 1, hjust = 1),  axis.text.y = element_text(colour = "black", face = "bold", size = 15, angle = 30), legend.text = element_text(size = 10, face ="bold", colour ="black"),legend.title = element_text(size = 12, face = "bold"),panel.background = element_blank(), panel.border = element_rect(colour = "white", fill = NA, size = 1.2), legend.position = "right")
+
+```
+
+```{r}
+apop <- c("AIF:PF3D7-0720400", "DRE2:PF3D7-0824600", "ARP:PF3D7-0108300", "PF3D7-1248500:PF3D7-1248500","MCA1:PF3D7-1354800", "MCA2:PF3D7-1438400", "PF3D7-1459800:PF3D7-1459800")
+
+DotPlot(ds.nf, features = apop, group.by = "seurat_clusters", cols = c("lightblue", "darkgreen"), dot.scale = 20, scale = TRUE, col.min = 0, col.max = 2)+ xlab("Stress Genes") + ylab("NFFG vs C_3") + theme(axis.text.x = element_text(angle = 45, hjust=1)) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 15, face = "bold", angle = 45, vjust = 1, hjust = 1),  axis.text.y = element_text(colour = "black", face = "bold", size = 15, angle = 30), legend.text = element_text(size = 10, face ="bold", colour ="black"),legend.title = element_text(size = 12, face = "bold"),panel.background = element_blank(), panel.border = element_rect(colour = "white", fill = NA, size = 1.2), legend.position = "right")
+```
+
+```{r}
+morn <- c("null:PF3D7-0205200", "MORN1:PF3D7-1031200", "null:PF3D7-0511300", "null:PF3D7-0514700", "null:PF3D7-1306500", "null:PF3D7-1426400", "null:PF3D7-1461400", "TRSP:PF3D7-0104000")
+
+DotPlot(ds.nf, features = morn, group.by = "seurat_clusters", cols = c("lightblue", "darkgreen"), dot.scale = 20, scale = TRUE, col.min = 0, col.max = 2)+ xlab("Stress Genes") + ylab("NFFG vs C_3") + theme(axis.text.x = element_text(angle = 45, hjust=1)) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 15, face = "bold", angle = 45, vjust = 1, hjust = 1),  axis.text.y = element_text(colour = "black", face = "bold", size = 15, angle = 30), legend.text = element_text(size = 10, face ="bold", colour ="black"),legend.title = element_text(size = 12, face = "bold"),panel.background = element_blank(), panel.border = element_rect(colour = "blue", fill = NA, size = 1.2), legend.position = "right")
+```
+
+
+```{r}
+
+
+p2 <- ggplot(meta_nf_2, aes(x=Timepoint, y=nCount_RNA, fill= seurat_clusters)) +geom_bar(width = 0.5, stat = "identity") +scale_color_manual(values = col_cluster)+ theme_classic() +  theme(axis.text.x = element_text(hjust=1, angle = 45)) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 15, vjust = 1, hjust = 1),  axis.text.y = element_text(colour = "black", size = 20), legend.text = element_text(size = 15, face ="bold", colour ="black"),legend.title = element_text(size = 12, face = "bold"),panel.background = element_blank(), panel.border = element_rect(colour = "white", fill = NA, size = 1.2), legend.position = "right") + labs(x= "Time points", y="mRNA abundance")
+
+
+
+p3 <- ggplot(meta_nf_2, aes(x=Timepoint, y=nFeature_RNA, fill= seurat_clusters)) +geom_bar(width = 0.5, stat = "identity") +scale_color_manual(values = col_cluster)+ theme_classic() +  theme(axis.text.x = element_text(hjust=1, angle = 45)) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 15, vjust = 1, hjust = 1),  axis.text.y = element_text(colour = "black", size = 20), legend.text = element_text(size = 15, face ="bold", colour ="black"),legend.title = element_text(size = 12, face = "bold"),panel.background = element_blank(), panel.border = element_rect(colour = "white", fill = NA, size = 1.2), legend.position = "right")+ labs(x= "Time points", y="Number of genes")
+
+```
+
+exporting png images
+```{r}
+png(filename = "~/Desktop/Zygote/Figs/Pseudotime/new_figs/zygote/nFeature_RNA.png", width = 20, height= 10, unit = "cm", res= 300)
+print(p2)
+dev.off()
+```
+
+list of ApiAP2 TFs across clusters upload the TFs list
+```{r}
+
+#AP2s <- read_excel("~/Desktop/Zygote/AP2 list 200916.xlsx")
+
+TF <-  c("ApiAP2:PF3D7-0404100", "ApiAP2:PF3D7-1342900", "ApiAP2:PF3D7-1408200", "ApiAP2:PF3D7-1466400", "ApiAP2:PF3D7-1239200", "ApiAP2:PF3D7-1456000", "ApiAP2:PF3D7-0516800", "ApiAP2:PF3D7-1449500", "ApiAP2:PF3D7-0420300", "ApiAP2:PF3D7-1429200", "ApiAP2:PF3D7-1107800", "AP2Tel:PF3D7-0622900", "ApiAP2:PF3D7-0934400", "AP2-I:PF3D7-1007700", "ApiAP2:PF3D7-0802100", "SIP2:PF3D7-0604100", "ApiAP2:PF3D7-1115500", "ApiAP2:PF3D7-1139300", "ApiAP2:PF3D7-1143100", "ApiAP2:PF3D7-0613800", "ApiAP2:PF3D7-0730300", "ApiAP2:PF3D7-1350900", "ApiAP2:PF3D7-0611200", "AP2-G:PF3D7-1222600", "ApiAP2:PF3D7-1317200", "ApiAP2:PF3D7-1305200", "ApiAP2:PF3D7-1222400")
+
+DotPlot(ds.ds_subset, features = TF, group.by = "seurat_clusters", cols = c("white", "darkred"), dot.scale = 15, scale = TRUE, col.min = 0, col.max = 2)+ xlab("Genes") + ylab("Seurat_clusters") + theme(axis.text.x = element_text(angle = 45, hjust=1)) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 15, face = "bold", angle = 45, vjust = 1, hjust = 1),  axis.text.y = element_text(colour = "black", face = "bold", size = 15, angle = 30), legend.text = element_text(size = 10, face ="bold", colour ="black"),legend.title = element_text(size = 12, face = "bold"),panel.background = element_blank(), panel.border = element_rect(colour = "white", fill = NA, size = 1.2), legend.position = "right")
+```
+
+
+exporting png
+```{r}
+png(filename = "~/Desktop/Zygote/Figs/Pseudotime/new_figs/zygote/UMAP_seurat.png", width = 20, height= 15, unit = "cm", res= 300)
+print(p7)
+dev.off()
+```
+
+
+soecific cells isolation cluster based not used 
+```{r}
+#how many cells in each cluster 
+Idents(ds.ds) <- "seurat_clusters"
+table(Idents(ds.ds))
+table(Idents(ds.ds), ds.ds$Timepoint) #how many cells in each cluster bby timepoints 
+# how many cells in ecah timepoint 
+Idents(ds.ds) <- "Timepoint"
+table(Idents(ds.ds))
+clust0.cells <- rownames(ds.ds@meta.data[ds.ds@meta.data$seurat_clusters == 0, ])
+clust1.cells <- rownames(ds.ds@meta.data[ds.ds@meta.data$seurat_clusters == 1, ])
+clust2.cells <- rownames(ds.ds@meta.data[ds.ds@meta.data$seurat_clusters == 2, ])
+clust3.cells <- rownames(ds.ds@meta.data[ds.ds@meta.data$seurat_clusters == 3, ])
+clust4.cells <- rownames(ds.ds@meta.data[ds.ds@meta.data$seurat_clusters == 4, ])
+clust5.cells <- rownames(ds.ds@meta.data[ds.ds@meta.data$seurat_clusters == 5, ])
+clust6.cells <- rownames(ds.ds@meta.data[ds.ds@meta.data$seurat_clusters == 6, ])
+DimPlot(ds.ds, reduction = "UMAP_on_PCA", pt.size = 2, group.by = "seurat_clusters", cells.highlight = clust6.cells, sizes.highlight = 2, cols.highlight = c("#C16200"), label = T, label.size = 5) #highlight clusters based on colors 
+DimPlot(ds.ds, reduction = "UMAP_on_PCA", pt.size = 2, group.by = "seurat_clusters", cells.highlight = int_cells, sizes.highlight = 2, cols.highlight = c("#C16200"), label = T, label.size = 5)
+cowplot::plot_grid(c0_umap, c1_umap, c2_umap, c3_umap, c4_umap, c5_umap, c6_umap)
+```
+
+
+DEG analysis
+```{r}
+ds.ds.markers <- FindAllMarkers(ds.ds_subset, only.pos = F, logfc.threshold = 0.25, test.use = "wilcox", min.pct = 0.25)
+EnhancedVolcano(ds.ds.markers, lab = ds.ds.markers$gene, x="avg_logFC", y="p_val_adj", labSize = 3, legendPosition = "right", legendLabels = c("Not Sig", "log2FC", "p-value", "p-value & log2FC"))
+ds.ds.markers %>% group_by(cluster) %>% top_n(n = 50, wt = avg_logFC) #top 50 up-regulated genes
+```
+
+
+convert seurat object matrix for heatmaps
+```{r}
+gene_data <- data.frame(t(as.matrix(ds.ds_subset@assays$RNA@data)),cluster=ds.ds_subset$seurat_clusters,check.names = F)
+average_data <- aggregate(.~cluster, gene_data, mean)
+cluster_name <- average_data[,1]
+average_data <- apply(average_data[,2:ncol(average_data)],2,as.numeric)
+rownames(average_data) <- cluster_name
+average_data <- t(average_data)
+phmat1 <- t(scale(t(average_data)))
+```
+
+
+
+
+heatmaps top10 in Supp
+```{r}
+top5_z <- c()
+
+for(i in c("C_0","C_1","C_2","C_3","C_4")){
+
+  genetmp <- rownames(ds.ds.markers)[ds.ds.markers$cluster==i][1:5]
+
+  top5_z <- c(top5_z, genetmp)
+
+}
+
+all_anno <- ds.ds_subset@meta.data[ ,c("Timepoint","seurat_clusters", "Groups")]
+
+pheatmap(phmat1[top10$gene, ], cluster_rows = F, cluster_cols = F, breaks = myBreaks, fontsize_col = 10, fontsize_row = 5, cellwidth = 15, cellheight = 5, angle_col = 45, color = colorRampPalette(c("#440154" ,"#21908C", "#FDE725"))(100))
+
+pheatmap(phmat1[as.character(na.omit(top10_z)) ,c('C_0','C_1','C_2','C_3','C_4')], cluster_rows = F, cluster_cols = F, breaks = myBreaks, fontsize_col = 15, fontsize_row = 7, angle_col = 45, color = colorRampPalette(c("#440154" ,"#21908C", "#FDE725"))(100))
+
+```
+
+
+exporting png plots for GO enrichment 
+```{r}
+png(filename = "~/Desktop/Zygote/Figs/Pseudotime/new_figs/zygote/GO_state_3.png", width = 28, height= 10, unit = "cm", res= 300)
+print(p3)
+dev.off()
+```
+
+
+
+
+GO analysis plotting of bar plots GO terms obtained from plasmodb GO analysis external files just plotting in ggplot2
+```{r}
+data <- df %>% dplyr::select(X, cluster, avg_logFC)
+data$cluster <- plyr::mapvalues(data$cluster, c("0", "1", "2", "3", "4"), c("C_0", "C_1", "C_2", "C_3", "C_4"))
+df2 <- data.frame(data$X, cluster=data$cluster, avg_logFC = df$avg_logFC, P_adjust= df$p_val_adj)
+
+state_0_GO = read.csv("Desktop/Zygote/Figs/Pseudotime/Supp_files/state_0_GO.csv", sep = ";", row.names = 1)
+state1_GO = read.csv("Desktop/Zygote/Figs/Pseudotime/Supp_files/state1_GO.csv", sep = ";", row.names = 1)
+state_2_GO = read.csv("Desktop/Zygote/Figs/Pseudotime/Supp_files/state_2_GO.csv", sep = ";", row.names = 1)
+
+ggplot((head(state_0_GO, 10)), aes(reorder(Term, log(Fold_enrichment)), log(Fold_enrichment))) + geom_bar(stat = "identity", color = "black", fill = "firebrick") + scale_fill_gradientn(colours =   RColorBrewer::brewer.pal(n = 9, name = "Reds")) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 15, face = "bold", angle = 0, vjust = 0.3, hjust = 1), axis.text.y = element_text(colour = "black", face = "bold", size = 15), legend.text = element_text(size = 15, face ="bold", colour ="black"), legend.title = element_text(size = 15, face = "bold"), panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.2)) + coord_flip()+ ylab("Fold Enrichment") + xlab("")+ggtitle("Biological process-Over-Represenation State 1")
+
+ggplot((head(state1_GO, 10)), aes(reorder(Term, log(Fold_enrichment)), log(Fold_enrichment))) + geom_bar(stat = "identity", color = "black", fill = "firebrick") + scale_fill_gradientn(colours =   RColorBrewer::brewer.pal(n = 9, name = "Reds")) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 15, face = "bold", angle = 0, vjust = 0.3, hjust = 1), axis.text.y = element_text(colour = "black", face = "bold", size = 15), legend.text = element_text(size = 15, face ="bold", colour ="black"), legend.title = element_text(size = 15, face = "bold"), panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.2)) + coord_flip()+ ylab("Fold Enrichment") + xlab("")+ggtitle("Biological process-Over-Represenation State 2")
+
+ggplot((head(state_2_GO, 10)), aes(reorder(Term, log(Fold_enrichment)), log(Fold_enrichment))) + geom_bar(stat = "identity", color = "black", fill = "firebrick") + scale_fill_gradientn(colours =   RColorBrewer::brewer.pal(n = 9, name = "Reds")) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 15, face = "bold", angle = 0, vjust = 0.3, hjust = 1), axis.text.y = element_text(colour = "black", face = "bold", size = 15), legend.text = element_text(size = 15, face ="bold", colour ="black"), legend.title = element_text(size = 15, face = "bold"), panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.2)) + coord_flip()+ ylab("Fold Enrichment") + xlab("")+ggtitle("Biological process-Over-Represenation State 3")
+
+
+```
+
+
+
+GO enrichment analysis using clusterprofiler not used 
+```{r}
+df = read.csv("Desktop/Zygote/Figs/Pseudotime/Supp_files/DEG_Pseuodtime.csv", header=TRUE)
+original_gene_list <- df$avg_logFC
+names(original_gene_list) <- df$X
+gene_list<-na.omit(original_gene_list)
+gene_list = sort(gene_list, decreasing = TRUE)
+sig_genes_df = subset(df, avg_logFC >= 1.5)
+genes <- sig_genes_df$avg_logFC
+names(genes) <- sig_genes_df$X
+genes <- na.omit(genes)
+genes <- names(genes)[abs(genes) > 2]
+keytypes(org.Pf.plasmo.db)
+organism = org.Pf.plasmo.db
+#library(organism, character.only = TRUE)
+library(organism, character.only = TRUE, package = "org.Pf.plasmo.db")
+library(DOSE)
+go_enrich <- enrichGO(gene = genes,
+                       universe = names(gene_list),
+                       OrgDb = organism, 
+                       keyType = 'ALIAS',
+                       readable = T,
+                      ont = "BP")
+ggplot(head(go_enrich@result, 20), aes(reorder(Description, -log10(pvalue)), -log10(pvalue))) +
+    geom_bar(stat = "identity", color = "black", fill = "firebrick") + coord_flip()+scale_fill_gradientn(name = "Enrichment Score",colours =   RColorBrewer::brewer.pal(n = 9, name = "Reds")) + scale_y_continuous() +
+    xlab("Enrichment Score") +
+    ylab("Biological Process") +
+    theme(axis.text.y = element_text(size = 10), axis.title = element_blank(), panel.background = element_blank())+ggtitle("Biological process-Over-Represenation")
+##################################################################################################
+ggplot((head(state_0_GO, 20)), aes(reorder(Term, log(Fold_enrichment)), log(Fold_enrichment))) + geom_bar(stat = "identity", color = "black", fill = "firebrick") + scale_fill_gradientn(colours =   RColorBrewer::brewer.pal(n = 9, name = "Reds")) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 12, face = "bold", angle = 0, vjust = 0.3, hjust = 1), axis.text.y = element_text(colour = "black", face = "bold", size = 11), legend.text = element_text(size = 10, face ="bold", colour ="black"), legend.title = element_text(size = 12, face = "bold"), panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.2)) + coord_flip()+ ylab("Fold Enrichment") + xlab("")+ggtitle("Biological process-Over-Represenation C_0")
+########################################################################################
+ggplot(head(go_enrich@result, 7), aes(reorder(Description, -log10(pvalue)), -log10(pvalue))) +
+    geom_bar(stat = "identity", color = "Red") + scale_fill_gradientn(colours =   RColorBrewer::brewer.pal(n = 9, name = "Blues")) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 8, face = "bold", angle = 45, vjust = 1, hjust = 1), axis.text.y = element_text(colour = "black", face = "bold", size = 11), legend.text = element_text(size = 10, face ="bold", colour ="black"), legend.title = element_text(size = 12, face = "bold"), panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.2)) +ggtitle("Biological process-Over-Represenation C_0") + ylab("Fold enrichment") + xlab("")
+
+go_data <- data.frame(head(go_enrich@result, 8))
+go_data$fraction <- go_data$Count /sum(go_data$Count)
+go_data$ymax <- cumsum(go_data$fraction)
+go_data$ymin <- c(0, head(go_data$ymax, n=-1))
+go_data$labelPosition <- (go_data$ymax + go_data$ymin) / 2
+go_data$label <- paste0(go_data$Description, "\n value: ", go_data$Count)
+ggplot(go_data, aes(ymax=ymax, ymin=ymin, xmax=4, xmin=2.7, fill=Description)) +
+    geom_rect() +
+    geom_label( x=4.1, aes(y=labelPosition, label=label), size=3.2 ) +
+    scale_fill_brewer(palette="Set3", "Enriched GO terms") +
+    coord_polar(theta="y") +
+    xlim(c(2, 4)) +
+    theme_void() +
+    theme(legend.position = "none")
+
+
+barplot(go_enrich, 
+         drop = TRUE, 
+         showCategory = 10, 
+         title = "GO Biological Pathways",
+         font.size = 8)
+```
+
+```{r}
+png(filename = "~/Desktop/Zygote/figs/Pseudotime/new_figs/Final_figs/C_2_GO.png", width = 50, height= 15, unit = "cm", res= 300)
+print(p3)
+dev.off()
+```
+
+
+
+used for generating GSE dotplot in Supp-Figs
+```{r}
+####################################################################################################
+library(ggupset)
+gse <- gseGO(geneList=gene_list, 
+             ont ="BP", 
+             keyType = "ALIAS",
+             minGSSize = 3, 
+             maxGSSize = 800, 
+             pvalueCutoff = 0.05, 
+             verbose = TRUE, 
+             OrgDb = organism, 
+             pAdjustMethod = "none", scoreType = "pos")
+xxm <- dotplot(gse, showCategory=30, font.size = 15) + coord_flip()+ theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 15, face = "bold", angle = 83, vjust = 1, hjust = 1),  axis.text.y = element_text(colour = "black", face = "bold", size = 18), legend.text = element_text(size = 15, face ="bold", colour ="black"),legend.title = element_text(size = 12, face = "bold"),panel.background = element_blank(), panel.border = element_rect(colour = "white", fill = NA, size = 2), legend.position = "right") + scale_color_gradient(low = "Yellow", high = "Red")+ scale_size_area(max_size = 12)
+
+dotplot(gse_0, showCategory=10) + labs(title = "Cluster 0 enriched pathways")
+emapplot(gse, showCategory = 10)
+cnetplot(gse, categorySize="pvalue", foldChange=gene_list, showCategory = 10, layout = "kk", colorEdge = TRUE, circular = TRUE, node_label = "all")+ labs(title = "Top 10 GSE NETWORK")
+ridgeplot(gse, showCategory=10) + labs(x = "Enrichment Distribution", title = "Cluster 0 Top 10 supressed pathways")+theme(axis.text.y = element_text(size = rel(2)))
+heatplot(gse,  foldChange=gene_list, showCategory = 50) + labs(x = "Enrichment Distribution", title = "Clusters Top 50 enriched pathways based DEG")+theme(axis.text.y = element_text(size = rel(1)))
+upsetplot(gse, categorySize="pvalue", foldChange=gene_list, showCategory = 10, layout = "kk", colorEdge = TRUE, circular = TRUE, node_label = "all")
+upsetplot(gse, categorySize="pvalue", foldChange=gene_list, showCategory = 1) + geom_bar(stat = "identity", color = "black", fill = "lightblue", show.legend = T) + labs(title = "Cluster 1 GSE pathways")
+```
+
+
+Network analysis in here used gene annotation with accNO gene:PF3D7_XXXXXXX
+
+```{r}
+ap2o <- c("ApiAP2:PF3D7-1143100", "null:PF3D7-1310700", "CelTOS:PF3D7-1216600", "Cap380:PF3D7-0320400", "PLP3:PF3D7-0923300", "MCM9:PF3D7-0416300", "KAE1:PF3D7-0408900", "KAE1:PF3D7-1030600", "CTRP:PF3D7-0315200", "WARP:PF3D7-0801300","CHT1:PF3D7-1252200", "null:PF3D7-0607800", "PLP4:PF3D7-0819400", "null:PF3D7-0824100", "MUS81:PF3D7-1449400", "SOAP:PF3D7-1404300", "null:PF3D7-1243300", "PSOP1:PF3D7-0721700", "null:PF3D7-1236200", "null:PF3D7-0403800", "H3:PF3D7-0610400", "null:PF3D7-0518900", "CDPK3:PF3D7-0310100", "null:PF3D7-0720300", "PIMMS43:PF3D7-0620000", "null:PF3D7-1418300", "null:PF3D7-0408800", "null:PF3D7-1121100", "GAMER:PF3D7-0805200", "null:PF3D7-0112100", "P25:PF3D7-1031000", "H2B:PF3D7-1105100", "null:PF3D7-0519200", "RPB9:PF3D7-0110400", "CPR:PF3D7-1450300", "null:PF3D7-1349900", "H3.3:PF3D7-0617900", "TTL:PF3D7-0514000", "null:PF3D7-1454900", "P12:PF3D7-0612700", "null:PF3D7-0518000", "null:PF3D7-1248400")
+
+
+```
+
+```{r}
+gene_data <- data.frame(t(as.matrix(ds.ds_subset@assays$RNA@data)),cluster=ds.ds_subset$seurat_clusters,check.names = F)
+average_data <- aggregate(.~cluster, gene_data, mean)
+cluster_name <- average_data[,1]
+average_data <- apply(average_data[,2:ncol(average_data)],2,as.numeric)
+rownames(average_data) <- cluster_name
+average_data <- t(average_data)
+phmat1 <- t(scale(t(average_data)))
+
+```
+
+```{r}
+phmat1 = phmat1[!apply(phmat1, 1, sd) == 0, ]  
+phmat1 = Matrix::t(scale(Matrix::t(phmat1), center = TRUE))
+phmat1 = phmat1[is.na(row.names(phmat1)) == FALSE, ]
+phmat1[is.nan(phmat1)] = 0
+heatmap_matrix <- phmat1
+row_dist <- as.dist((1 - cor(Matrix::t(heatmap_matrix))))
+row_dist[is.na(row_dist)] <- 1
+
+```
+
+```{r}
+sub_mtr <- as.matrix(heatmap_matrix[ap2o, ])
+sub_corr.mat <- cor(t(sub_mtr), method = "spearman")
+pheatmap(sub_corr.mat)
+```
+
+```{r}
+library(igraph)
+g <- graph.adjacency(
+  as.matrix(as.dist(cor(t(sub_corr.mat), method="pearson"))),
+  mode="undirected",
+  weighted=TRUE,
+  diag=FALSE)
+
+plot(g)
+g <- simplify(g, remove.multiple=TRUE, remove.loops=TRUE)
+E(g)[which(E(g)$weight<0)]$color <- "darkblue"
+E(g)[which(E(g)$weight>0)]$color <- "darkred"
+E(g)$weight <- abs(E(g)$weight)
+g <- delete_edges(g, E(g)[which(E(g)$weight<0.8)])
+g <- delete.vertices(g, degree(g)==0)
+V(g)$name <- V(g)$name
+V(g)$shape <- "sphere"
+V(g)$color <- "skyblue"
+V(g)$vertex.frame.color <- "white"
+scale01 <- function(x){(x-min(x))/(max(x)-min(x))}
+vSizes <- (scale01(apply(sub_corr.mat, 1, mean)) + 1.0) * 10
+edgeweights <- E(g)$weight * 2.0
+mst <- mst(g, algorithm="prim")
+plot.igraph(mst, vertex.size=6, vertex.label.color="black", edge.arrow.size=.1,  vertex.label=ap2o, main="AP2-O target genes", vertex.color=mypalette, mark.expand = 90, layout=layout_with_kk, vertex.label.cex=0.7, frame = TRUE, vertex.label.font=2, edge.color= "black", rescale=TRUE, vertex.label.dist=0.9, simplify= TRUE)
+
+```
+
+```{r}
+png(filename = "~/Desktop/Zygote/figs/Pseudotime/new_figs/Ap2-O2-network.png", width = 40, height= 40, unit = "cm", res= 300)
+print(plot.igraph(mst, vertex.size=6, vertex.label.color="black", edge.arrow.size=.1,  vertex.label=ap2o, main="AP2-O2 target genes", vertex.color=mypalette, mark.expand = 90, layout=layout_with_kk, vertex.label.cex=0.7, frame = TRUE, vertex.label.font=2, edge.color= "black", rescale=TRUE, vertex.label.dist=0.9, simplify= TRUE))
+dev.off()
+```
+
+
+```{r}
+saveRDS(ds.ds,"~/Desktop/Zygote/Figs/UMAPS/seurat_obj_zyg.RDS")
+```
+
+
+
