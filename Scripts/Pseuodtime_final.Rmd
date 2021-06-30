@@ -1,0 +1,940 @@
+---
+title: "Zygote monocle"
+author: "Mubasher Mohammed"
+date: "6/15/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+summary(cars)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+plot(pressure)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r}
+hFind <- function(x) {
+return(ds.ds@data@Dimnames[[1]][grep(x, ds.ds@data@Dimnames[[1]], ignore.case = T)])}
+```
+
+```{r}
+library(readr)
+library(monocle)
+library(reshape2)
+library(ggsci)
+library(dplyr)
+library(gam)
+library(slingshot)
+library(SingleCellExperiment)
+library(pheatmap)
+library(viridis)
+library(tidymodels)
+library(uwot)
+library(tradeSeq)
+library(mclust)
+library(RColorBrewer)
+library(clusterExperiment)
+library(Seurat)
+library(ggbeeswarm)
+```
+
+loading expression matrix and metadata
+```{r}
+ds.counts <- read.csv("~/Desktop/Zygote/zygote.csv", sep=";", row.names=1, header = TRUE, check.names = FALSE)
+#phenotype <- read.csv("~/Desktop/Zygote/zygote_metadata.csv", row.names=1, sep=";", header = TRUE, check.names = FALSE)
+phenotype <- read.csv("~/Desktop/Zygote/Figs/UMAPS/meta_data.csv", row.names=1)
+ann <- plasmodb_gene_name <- read_delim("~/Desktop/Zygote/ann_50v.csv", ";", escape_double = FALSE, trim_ws = TRUE)
+#rownames(ann) <- ann$`Gene ID`
+ds.counts <- as.matrix(ds.counts)
+total_count_per_cell <- colSums(ds.counts)
+phenotype$Timepoint <- plyr::mapvalues(phenotype$Timepoint, c('0','2','4','8','12','20') , c('0_h','2_h','4_h','8_h','12_h','20_h'))
+order_tp <- c("0_h", "2_h", "4_h", "8_h", "12_h", "20_h")
+phenotype$Timepoint <- factor(phenotype$Timepoint, levels = order_tp)
+sort(phenotype$Timepoint)
+
+phenotype$seurat_clusters <- plyr::mapvalues(phenotype$seurat_clusters, c('0','1','2','3','4') , c('C_0','C_1','C_2','C_3','C_4'))
+order_clusters <- c('C_0','C_1','C_2','C_3','C_4')
+phenotype$seurat_clusters <- factor(phenotype$seurat_clusters, levels = order_clusters)
+sort(phenotype$seurat_clusters)
+
+```
+
+
+for annotation of genes names 
+```{r}
+m <- match(rownames(ds.counts), ann$`Gene ID`)
+ann$unique_gene_name <-  NA 
+ann$unique_gene_name[is.na(ann$`Gene Name or Symbol`)] <- make.unique(as.vector(ann$`Gene ID`[is.na(ann$`Gene Name or Symbol`)]))      
+ann$unique_gene_name[!is.na(ann$`Gene Name or Symbol`)] <- make.unique(as.vector(ann$`Gene Name or Symbol`[!is.na(ann$`Gene Name or Symbol`)]))   
+rownames(ann) <- ann$`Gene ID`
+#####################################
+ds.counts <- ds.counts[intersect(rownames(ds.counts), rownames(ann)), ]
+newnames <- ann[rownames(ds.counts), ]$unique_gene_name
+rownames(ds.counts) <- newnames
+```
+
+for annotation of genes names with accno
+```{r}
+m <- match(rownames(ds.counts), ann$`Gene ID`)
+newnames <- apply(cbind(as.vector(ann$`Gene Name or Symbol`)[m],rownames(ds.counts)),1,paste,collapse=":")
+rownames(ds.counts)<-newnames
+```
+
+
+
+```{r}
+custom_fill_colors = c(RColorBrewer::brewer.pal(9, "Oranges")[2], 
+                       RColorBrewer::brewer.pal(9, "Reds")[6], 
+                       RColorBrewer::brewer.pal(9, "Oranges")[3], 
+                       RColorBrewer::brewer.pal(9, "Reds")[7],
+                       RColorBrewer::brewer.pal(9, "Reds")[8],
+                       RColorBrewer::brewer.pal(9, "Oranges")[4],
+                       RColorBrewer::brewer.pal(9, "Reds")[9],
+                       RColorBrewer::brewer.pal(9, "Oranges")[5],
+                       RColorBrewer::brewer.pal(9, "Blues")[4:9])
+```
+
+```{r}
+custom_fill_colors_2 = c(RColorBrewer::brewer.pal(9, "Reds"))
+```
+
+
+subset cells without (0h) NFFG
+```{r}
+z_cells <- c("2_h", "4_h", "8_h", "12_h", "20_h") #NO 0_h
+int_cells <- rownames(phenotype)[phenotype$Timepoint %in% z_cells]
+```
+
+```{r}
+sample_sheet <- phenotype[int_cells,]
+gene_annotation <- data.frame(gene_short_name=rownames(ds.counts[,int_cells]), row.names = rownames(ds.counts[,int_cells]))
+expr_matrix <- as(as.matrix(ds.counts[,int_cells]), "dgCMatrix")
+```
+
+start with mature 
+```{r}
+pd <- new("AnnotatedDataFrame", data = sample_sheet)
+fd <- new("AnnotatedDataFrame", data = gene_annotation)
+cds <- newCellDataSet(expr_matrix, phenoData = pd, featureData = fd, lowerDetectionLimit = 1, expressionFamily = negbinomial.size())
+````
+
+
+```{r}
+cds <- estimateSizeFactors(cds) # do it in the console 
+cds <- estimateDispersions(cds)
+```
+
+```{r}
+cds<- detectGenes(cds, min_expr = 0.1)
+print(head(fData(cds)))
+expressed_genes <- row.names(subset(fData(cds),
+    num_cells_expressed >= 10)) #50 #10
+print(head(pData(cds)))
+```
+
+Plot the distribution of total mRNA across the cells  
+```{r}
+pData(cds)$nFeature_RNA <- Matrix::colSums(exprs(cds))
+cds <- cds[,pData(cds)$nFeature_RNA < 1e6]
+upper_bound <- 10^(mean(log10(pData(cds)$nFeature_RNA)) +
+            2*sd(log10(pData(cds)$nFeature_RNA)))
+lower_bound <- 10^(mean(log10(pData(cds)$nFeature_RNA)) -
+            2*sd(log10(pData(cds)$nFeature_RNA)))
+
+qplot(nFeature_RNA, data = pData(cds), color = Timepoint, geom =
+"density") +
+geom_vline(xintercept = lower_bound) +
+geom_vline(xintercept = upper_bound)
+```
+Plot the distribution of the standerdized gene expression values 
+```{r}
+# Log-transform each value in the expression matrix.
+L <- log(exprs(cds[expressed_genes,]))
+
+# Standardize each gene, so that they are all on the same scale,
+# Then melt the data with plyr so we can plot it easily
+melted_dens_df <- melt(Matrix::t(scale(Matrix::t(L))))
+
+# Plot the distribution of the standardized gene expression values.
+qplot(value, geom = "density", data = melted_dens_df) +
+stat_function(fun = dnorm, size = 0.5, color = 'red') +
+xlab("Standardized log(FPKM)") +
+ylab("Density")
+```
+Ploting the variabilty of the genes expression based on the average expression across the cells the black dots are the genes will be used by monocle for the clustering these are the highly varibale genes in unsupervised manner choosed by monocle to establish the clustering 
+```{r}
+disp_table <- dispersionTable(cds)
+unsup_clustering_genes <- subset(disp_table, mean_expression >= 0.1)
+cds <- setOrderingFilter(cds, unsup_clustering_genes$gene_id)
+plot_ordering_genes(cds)
+```
+
+```{r}
+# HSMM@auxClusteringData[["tSNE"]]$variance_explained <- NULL
+plot_pc_variance_explained(cds, return_all = F) # norm_method='log'
+```
+
+Do the DR for clustering using tSNE 
+
+```{r}
+cds <- reduceDimension(cds)
+#cds <- clusterCells(cds, num_clusters = 3)
+#cds <- clusterCells(cds, verbose = TRUE)
+#plot_cell_clusters(cds)
+```
+
+
+```{r}
+cds <- reduceDimension(cds, max_components = 2, num_dim = 2, reduction_method = 'DDRTree', verbose = T, norm_method = "vstExprs", pseudo_expr = 1, relative_expr = TRUE, scaling = TRUE)
+cds <- orderCells(cds, reverse = T) 
+plot_cell_trajectory(cds, color_by = "Pseudotime")
+plot_cell_trajectory(cds, color_by = "Timepoint")
+plot_cell_trajectory(cds, color_by = "State")
+```
+
+```{r}
+diff_test_res <- differentialGeneTest(cds[expressed_genes,], fullModelFormulaStr = "~sm.ns(Pseudotime, df=3)", reducedModelFormulaStr = "~1")
+diff_test_res %>% arrange(qval) %>% head()
+```
+
+
+
+ordering genes 
+```{r}
+ordering_genes <- row.names(subset(diff_test_res, qval < 0.05))
+cds <- setOrderingFilter(cds, ordering_genes)
+plot_ordering_genes(cds)
+```
+
+
+
+for creating Pseudotime heatmaps converting cds obj to matrix
+```{r}
+newdata <- data.frame(Pseudotime = seq(min(pData(cds)$Pseudotime), max(pData(cds)$Pseudotime),length.out = 1000))
+m <- genSmoothCurves(cds, cores=1, trend_formula = "~sm.ns(Pseudotime, df = 3)", relative_expr = T, new_data = newdata)
+
+
+plot_pseudotime_heatmap_binSize <- function (cds, cluster_rows = TRUE, bin_size = 1000,  
+                                             hclust_method = "ward.D2", 
+    num_clusters = NA, hmcols = mypalette, add_annotation_row = NULL, annotation_row = NA,
+    add_annotation_col = NULL, show_rownames = FALSE, use_gene_short_name = TRUE, 
+    norm_method = c("vstExprs", "log"), scale_max = 3, scale_min = -3, 
+    trend_formula = "~sm.ns(Pseudotime, df=3)", main = NULL, return_heatmap = FALSE, 
+    cores = 1) 
+m = m[!apply(m, 1, sd) == 0, ]  
+m = Matrix::t(scale(Matrix::t(m), center = TRUE))
+m = m[is.na(row.names(m)) == FALSE, ]
+m[is.nan(m)] = 0
+heatmap_matrix <- m
+row_dist <- as.dist((1 - cor(Matrix::t(heatmap_matrix)))/2)
+row_dist[is.na(row_dist)] <- 1
+pseudocount <- NA
+m = m[!apply(m, 1, sum) == 0, ]
+bks <- seq(-3.1, 3.1, by = 0.1)
+#mypalette <- inferno(length(bks) - 1)
+#bks <- seq(-2.1, 2.1, length.out = length(mypalette))
+
+```
+
+```{r}
+col_tp <- setNames(c('green3','red3','blue3','orange3', 'purple3','magenta3' ), c('2_h', '4_h','8_h','12_h','20_h'))
+order_tp <- c("0_h", "2_h", "4_h", "8_h", "12_h", "20_h")
+col_tp <- setNames(c('green3','red3','blue3','orange3', 'purple3','magenta3' ), c('0_h','2_h', '4_h','8_h','12_h','20_h'))
+col_state <- c('State_1','State_2','State_3')
+col_state <- setNames(c('red3','orange','green3','purple3','blue3','magenta','#C16200','#71226e'), col_state)
+col_all <- pal_d3(palette = 'category20')(16)[-8] 
+```
+
+
+
+
+trying Slingshot
+```{r}
+ds.ds <- readRDS(file = "~/Desktop/Zygote/figs/UMAPS/objects/seurat_subset.RDS")
+
+data <- CreateSeuratObject(counts = ds.counts[,int_cells]) 
+data <- NormalizeData(data)
+data <- FindVariableFeatures(data, nfeatures = 2000)
+data <- ScaleData(data)
+data <- RunPCA(data)
+```
+
+```{r}
+data <- FindNeighbors(data)
+data <- FindClusters(data, resolution = 0.8)
+data <- RunUMAP(data, n.neighbors = 10, dims = 1:50, spread = 2, min.dist = 0.3)
+#data <- RunUMAP(data, n.neighbors = 10, dims = 1:50, spread = 1, min.dist = 0.02) inacse of 0h included 
+DimPlot(data, group.by = "RNA_snn_res.0.8")
+data$RNA_snn_res.0.8 <- factor(data$RNA_snn_res.0.8, levels = c("0", "2", "1"))
+data$RNA_snn_res.0.8 <- plyr::mapvalues(data$RNA_snn_res.0.8, c('0','2','1') , c('C_0','C_1','C_2'))
+DimPlot(data, group.by = "RNA_snn_res.0.8")
+data$seurat_clusters <- factor(data$seurat_clusters, levels = c("0", "2", "1"))
+data$seurat_clusters <- plyr::mapvalues(data$seurat_clusters, c('0','2','1') , c('C_0','C_1','C_2'))
+DimPlot(data, group.by = "seurat_clusters")
+```
+
+
+
+```{r}
+c0.state <- FindMarkers(data, ident.1 = 0, min.pct = 0.25, only.pos = T)
+c1.state <- FindMarkers(data, ident.1 = 2, min.pct = 0.25, only.pos = T)
+c2.state <- FindMarkers(data, ident.1 = 1, min.pct = 0.25, only.pos = T)
+ds.ds.markers <- FindAllMarkers(data, only.pos = T, logfc.threshold = 0.25, test.use = "wilcox", min.pct = 0.25)
+ds.ds.markers %>% group_by(cluster) %>% top_n(n = 2, wt = avg_logFC) 
+```
+
+
+
+```{r}
+dimred <- data@reductions$umap@cell.embeddings
+clustering <- data$RNA_snn_res.0.8
+counts <- as.matrix(data@assays$RNA@counts[data@assays$RNA@var.features, ])
+```
+
+```{r}
+lineages <- getLineages(data = dimred, clusterLabels = clustering)
+lineages
+```
+
+```{r}
+par(mfrow = c(1, 2))
+plot(dimred[, 1:2], col = col_state[clustering], cex = 0.5, pch = 16)
+for (i in levels(clustering)) {
+    text(mean(dimred[clustering == i, 1]), mean(dimred[clustering == i, 2]), labels = i, font = 2)
+}
+plot(dimred[, 1:2], col = col_state[clustering], cex = 0.5, pch = 16)
+lines(lineages, lwd = 3, col = "black")
+```
+
+```{r}
+set.seed(1)
+lineages <- getLineages(data = dimred,
+                        clusterLabels = clustering,
+                        #end.clus = c("11","7","10","9","5"), #define how many branches/lineages to consider
+                        start.clus = "C_0") #define where to start the trajectories
+
+lineages
+clust <- c("C_0", "C_1", "C_2")
+```
+
+```{r}
+curves <- getCurves(lineages, approx_points = 300, thresh = 0.01, stretch = 0.8, allow.breaks = FALSE, shrink = 0.99)
+curves
+par(mfrow=c(1,2))
+plot(dimred[,1:2], col = col_state[clustering],  cex=.5,pch = 16)
+for(i in levels(clustering)){ 
+  text( mean(dimred[clustering==i,1]),
+        mean(dimred[clustering==i,2]), labels = i,font = 2) }
+plot(dimred, col = col_state[clustering], asp = 1, pch = 16)
+lines(SlingshotDataSet(curves), lwd = 3, col = "black")
+```
+
+
+
+
+```{r}
+curves <- getCurves(lineages, approx_points = 300, thresh = 0.01, stretch = 0.8, allow.breaks = FALSE, shrink = 0.99)
+ plot(dimred, col = col_state[clustering], asp = 1.5, pch = 16, cex = 1.4)
+lines(curves, lwd = 5, col = "black") 
+legend(x="bottomright", fill=col_state, legend = clust)
+
+plot(dimred, col = col_tp[ds.ds$Timepoint], asp = 1.5, pch = 16, cex =1.4)
+lines(curves, lwd = 5, col = "black")
+legend(x="bottomright", fill=col_state, legend = clust)
+
+plot(dimred, col = col_state[ds.ds$seurat_clusters], asp = 1.5, pch = 16, cex =1.4)
+lines(curves, lwd = 5, col = "black")
+legend(x="bottomright", fill=col_state, legend = order_clusters)
+```
+
+```{r}
+filt_counts <- counts[rowSums(counts > 5) > ncol(counts)/100, ]
+dim(filt_counts)
+```
+
+
+```{r}
+sce <- fitGAM(counts = as.matrix(filt_counts), sds = curves)
+plotGeneCount(curves, filt_counts, clusters = ds.ds$seurat_clusters, models = sce)
+plotcol <- colors[cut(sce@colData$slingshot$pseudotime.curve1, breaks=100)]
+plot(dimred, col = plotcol, asp = 1.5, pch = 16, cex =1.4)
+lines(curves, lwd = 5, col = "black")
+
+```
+
+
+
+```{r}
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(sce@colData$slingshot$pseudotime.curve1, breaks=100)]
+plot(dimred, col = plotcol, asp = 1, pch = 16)
+lines(curves, lwd = 3, col = "black")
+
+```
+
+DEG from monocle
+```{r}
+diff_test_res <- differentialGeneTest(sce[expressed_genes,], fullModelFormulaStr = "~sm.ns(Pseudotime, df=3)", reducedModelFormulaStr = "~1")
+diff_test_res %>% arrange(qval) %>% head()
+
+
+
+plot_differential_expression <- function(feature_id) {
+    feature_id <- pseudotime_association %>% filter(pvalue < 0.05) %>% top_n(1, -waldStat) %>% pull(feature_id)
+    cowplot::plot_grid(plotGeneCount(curves, filt_counts, gene = feature_id[1], clusters = clustering, models = sce) + ggplot2::theme(legend.position = "none"), 
+        plotSmoothers(sce, as.matrix(counts), gene = feature_id[1]))
+}
+```
+
+```{r}
+pseudotime_association <- associationTest(sce)
+pseudotime_association$fdr <- p.adjust(pseudotime_association$pvalue, method = "fdr")
+pseudotime_association <- pseudotime_association[order(pseudotime_association$pvalue), ]
+pseudotime_association$feature_id <- rownames(pseudotime_association)
+```
+
+```{r}
+ATres <- associationTest(sce)
+topgenes <- rownames(ATres[order(ATres$pvalue), ])[1:10]
+pst.ord <- order(sce$slingshot, na.last = NA)
+heatdata <- assays(sce)$counts[topgenes, pst.ord]
+heatclus <- clustering[pst.ord]
+
+
+rc <- rainbow(nrow(assays(sce)$counts[topgenes, pst.ord]), start = 0, end = .3)
+heatmap(log1p(heatdata), Colv = NA,
+        ColSideColors = col_state[heatclus], add.expr = TRUE, scale = "row", na.rm = TRUE, labRow = FALSE, labCol = FALSE, symm = FALSE)
+
+
+
+cold <- colorRampPalette(c('#f7fcf0','#41b6c4','#253494','#081d58','#081d58'))
+warm <- colorRampPalette(c('#ffffb2','#fecc5c','#e31a1c','#800026','#800026'))
+mypalette <- c(rev(cold(21)), warm(20))
+
+
+
+heatmap(log1p(heatdata), Colv = NA,
+        ColSideColors = plotcol[pst.ord], add.expr = TRUE, scale = "row", na.rm = TRUE, labRow = FALSE, labCol = FALSE, symm = FALSE, margins = c(5, 7), col=mypalette, xlab = "Pseudotime")
+legend(x="bottomright", 
+       fill=col_state, legend = clust)
+clust <- c("C_0", "C_1", "C_2")
+
+heatmap(log1p(heatdata), Colv = NA,
+        ColSideColors = col_state[heatclus], add.expr = TRUE, scale = "row", na.rm = TRUE, labRow = FALSE, labCol = FALSE, symm = FALSE, margins = c(5, 7), col=mypalette, xlab = "Pseudotime")
+legend(x="topright", 
+       fill=col_state, legend = clust)
+
+```
+
+
+converting sce to matrix for heatmaps
+```{r}
+sling_gene_data <- data.frame(t(as.matrix(sce@assays@data$counts)),pseudotime=sce$slingshot,check.names = F)
+average_data <- aggregate(.~clustering, sling_gene_data, mean)
+cluster_name <- average_data[,1]
+average_data <- apply(average_data[,2:ncol(average_data)],2,as.numeric)
+rownames(average_data) <- cluster_name
+average_data <- t(average_data)
+phmat1 <- t(scale(t(average_data)))
+im2 <- phmat1
+im2 = im2[!apply(im2, 1, sd) == 0, ] 
+im2 = Matrix::t(scale(Matrix::t(im2), center = TRUE))
+im2 = im2[is.na(row.names(im2)) == FALSE, ]
+im2[is.nan(im2)] = 0
+row_dist <- as.dist((1 - cor(Matrix::t(im2)))/2)
+row_dist[is.na(row_dist)] <- 1
+pseudocount <- NA
+im2 = im2[!apply(im2, 1, sum) == 0, ]
+bks <- seq(-3.1, 3.1, by = 0.1)
+mypalette <- inferno(length(bks) - 1)
+bks <- seq(-2.1, 2.1, length.out = length(mypalette))
+im3 <- im2[,1:3]
+```
+
+get the colors for Pseudotimeheatmaps
+```{r}
+colors <- colorRampPalette(rev(brewer.pal(10,'RdYlGn')[-7]))(110)
+plotcol <- colors[cut(sce@colData$slingshot$pseudotime.curve1, breaks=110)]
+bks <- seq(-2.1, 2.1, length.out = length(plotcol))
+
+
+heatmap(t(im3[1:1000, ]), Rowv = NA, add.expr = TRUE, scale = "column", labCol = FALSE)
+legend(x="topright", 
+       fill=col_state, legend = clust)
+```
+
+
+inspecting genes 
+```{r}
+startRes <- startVsEndTest(sce)
+oStart <- order(startRes$waldStat, decreasing = TRUE)
+sigGeneStart <- names(sce)[oStart[3]]
+plotSmoothers(sce, counts, gene = sigGeneStart)
+plotGeneCount(curve = curves, counts, gene = sigGeneStart)
+plotGeneCount(curves, counts, gene = sigGeneStart)
+
+
+feature_id <- pseudotime_association %>% filter(pvalue < 0.05) %>% top_n(1, -waldStat) %>% pull(feature_id)
+plot_differential_expression(feature_id)
+```
+
+inspecting genes
+```{r}
+pseudotime_start_end_association <- startVsEndTest(sce, pseudotimeValues = c(0, 1))
+pseudotime_start_end_association$feature_id <- rownames(pseudotime_start_end_association)
+
+feature_id <- pseudotime_start_end_association %>% filter(pvalue < 0.05) %>% top_n(5, waldStat) %>% pull(feature_id)
+
+plot_differential_expression(feature_id)
+p1 <- plotSmoothers(sce, counts, gene = "PSOP2:PF3D7-1367800", nPoints = 100, alpha = 0.9, pointCol = factor(clustering))
+p2 <- plotSmoothers(sce, counts, gene = "DMC1:PF3D7-0816800", nPoints = 100, alpha = 0.9, pointCol = factor(clustering))
+p3 <- plotSmoothers(sce, counts, gene = "PSOP7:PF3D7-1340000", nPoints = 100, alpha = 0.9, pointCol = factor(clustering))
+p1 <- plotGeneCount(curves, filt_counts, gene = "PSOP25:PF3D7-0620000", models = sce)
+p2 <- plotGeneCount(curves, filt_counts, gene = "GAMER:PF3D7-0805200", models = sce)
+p3 <- plotGeneCount(curves, filt_counts, gene = "ARP:PF3D7-0108300", models = sce) + scale_color_gradientn(colours = c('lightblue', 'red')) + geom_point(size = 2.5) + theme_classic()+theme(legend.text = element_text(size=15), axis.text = element_text(size = 15),axis.title = element_text(size = 15))+labs(x='Component 1',y="Component 2")
+
+p4 <- plotGeneCount(curves, filt_counts, gene = "TLP:PF3D7-0616500", models = sce)
+pw <- cowplot::plot_grid(p1, p2, p3, p4)
+```
+
+comparing genes
+```{r}
+startRes <- startVsEndTest(sce)
+oStart <- order(startRes$waldStat, decreasing = TRUE)
+sigGeneStart <- names(sce)[oStart[3]]
+plotSmoothers(sce, counts, gene = sigGeneStart)
+```
+
+
+
+
+cluster the top 20 genes from DEG
+```{r}
+diff_test_res %>% arrange(qval) %>% head(200) %>% select(gene_short_name) -> gene_to_cluster
+gene_to_cluster <- gene_to_cluster$gene_short_name
+
+
+pheatmap(heatmap_matrix[gene_to_cluster, ], color = plotcol[pst.ord], cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "average", fontsize = 5.8, silent = F, cellwidth = 0.3, cellheight = 1, clustering_distance_rows = "manhattan", show_rownames = F)
+
+```
+
+
+
+
+top 50 DEG in mature cells only 
+```{r}
+top_20_mat <- plot_pseudotime_heatmap(cds[gene_to_cluster,], cluster_rows = T, cores = 1, show_rownames = TRUE, return_heatmap = TRUE, hmcols =mypalette, norm_method = c("log"), trend_formula = "~sm.ns(Pseudotime, df=2)")
+
+top_20_mat$gtable$vp$gp$fontsize <- 30 # reset the font size (I have not test this so it may not work) 
+grid::grid.rect(gp=grid::gpar("fill", fontsize = 20))
+grid::grid.draw(top_20_mat$gtable)
+
+
+pheatmap(heatmap_matrix[gene_to_cluster, ], color = plotcol[pst.ord], cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "complete", fontsize = 8, silent = F, cellwidth = 0.3, cellheight = 2, clustering_distance_rows = "euclidean", show_rownames = F)
+
+```
+
+
+
+ploting trajectories
+```{r}
+
+p1 <- plot_cell_trajectory(cds, color_by = "Pseudotime", show_branch_points = F, cell_size = 3)+ scale_color_gradientn(colours = colorRampPalette(rev(c('blue','yellow','red')))(40))+ theme_classic()+theme(legend.text = element_text(size=15), axis.text = element_text(size = 15),axis.title = element_text(size = 15))+labs(x='Component 1',y="Component 2")
+p2 <- plot_cell_trajectory(cds, color_by = "State", show_branch_points = F, cell_size = 3)+scale_color_manual(values = col_state)+ theme_classic()+theme(legend.text = element_text(size=15), axis.text = element_text(size = 15),axis.title = element_text(size = 15))+labs(x='Component 1',y="Component 2")
+p3 <- plot_cell_trajectory(cds, color_by = "Timepoint", show_branch_points = F, cell_size = 3) +scale_color_manual(values = col_tp) + theme_classic()+theme(legend.text = element_text(size=15), axis.text = element_text(size = 15),axis.title = element_text(size = 15))+labs(x='Component 1',y="Component 2")
+p4 <- plot_cell_trajectory(cds, color_by = "seurat_clusters", show_branch_points = F, cell_size = 3)+scale_color_manual(values = col_state)+ theme_classic()+theme(legend.text = element_text(size=15), axis.text = element_text(size = 15),axis.title = element_text(size = 15))+labs(x='Component 1',y="Component 2")
+cowplot::plot_grid(p1, p2, p3)
+```
+
+plotting some genes in trajectories
+```{r}
+apop <- c("AIF:PF3D7_0720400", "DRE2:PF3D7_0824600", "ARP:PF3D7_0909300", "null:PF3D7_1248500","MCA1:PF3D7_1354800", "MCA2:PF3D7_1438400", "null:PF3D7_1459800")
+plot_cell_trajectory(cds, show_branch_points = T, show_tree = TRUE, markers = apop, markers_linear = FALSE, show_cell_names = FALSE, color_by= "cell_class", state_number_size = 3, cell_size = 3, use_color_gradient = TRUE) +scale_color_gradientn(colours = colorRampPalette(c('blue','green','yellow','red'))(50))
+
+FeaturePlot(ds.ds, features = c("ARP.1"),  pt.size = 3, reduction = "UMAP_on_PCA", min.cutoff = 2, cols = colorRampPalette(c('grey', "white", 'red'))(5))
+```
+
+selecting highly significant genes 
+```{r}
+sig_gene_names <- row.names(subset(diff_test_res, qval < 1e-5))
+length(sig_gene_names) #813 genes are highly significant
+sel.genes <- sample(sig_gene_names,33)
+
+pheatmap(heatmap_matrix[sel.genes, ], color = plotcol[pst.ord], cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "complete", fontsize = 8, silent = F, cellwidth = 0.3, cellheight = 10, clustering_distance_rows = "euclidean", show_rownames = T)
+```
+
+plot pseudo.time heatmap
+
+
+```{r}
+plot_genes_branched_heatmap(cds[gene_to_cluster,], branch_point = 3, branch_states = NULL, cluster_rows = TRUE, hclust_method = "ward.D2", num_clusters = 3, hmcols = mypalette, branch_colors = c("#979797", "#F05662", "#7990C8"), show_rownames = TRUE, use_gene_short_name = TRUE, scale_max = 2, scale_min = -2, norm_method = c("log"), trend_formula = "~sm.ns(Pseudotime, df=2)* Branch", cores = 1)
+```
+
+TFs in Pseuodtimeheatmap
+```{r}
+api.tf.genes <- c("ApiAP2:PF3D7_0420300", "ApiAP2:PF3D7_0802100", "ApiAP2:PF3D7_0934400", "ApiAP2:PF3D7_1107800", "ApiAP2:PF3D7_1139300", "ApiAP2:PF3D7_1239200", "ApiAP2:PF3D7_1317200", "ApiAP2:PF3D7_1342900", "ApiAP2:PF3D7_1429200", "ApiAP2:PF3D7_1350900", "ApiAP2:PF3D7_0516800", "ApiAP2:PF3D7_1143100", "ApiAP2:PF3D7_1305200")
+tf <- rownames(diff_test_res)[grep("ApiAP2", rownames(diff_test_res))]
+new_tf <- as.data.frame(diff_test_res[tf, ])
+sig_tf <- rownames(subset(new_tf, num_cells_expressed > 25))
+
+pheatmap(heatmap_matrix[sig_tf, ], color = plotcol[pst.ord], cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "ward.D2", fontsize = 6, silent = F, cellwidth = 0.2, cellheight = 15, clustering_distance_rows = "canberra", show_rownames = T, scale = "row")
+
+plot_pseudotime_heatmap(cds[api.tf.genes,], cluster_rows = T, cores = 1, show_rownames = TRUE, return_heatmap = TRUE,hclust_method = "ward.D2", hmcols =mypalette, norm_method = c("log"), trend_formula = "~sm.ns(Pseudotime, df=3)", num_clusters = 3)
+```
+
+Tfs_target genes with Binding motif 
+```{r}
+ap_PF3D7_1143100 <- c("ApiAP2:PF3D7_1143100", "null:PF3D7_1310700", "CelTOS:PF3D7_1216600", "Cap380:PF3D7_0320400", "PLP3:PF3D7_0923300", "MCM9:PF3D7_0416300", "KAE1:PF3D7_0408900", "KAE1:PF3D7_1030600", "CTRP:PF3D7_0315200", "WARP:PF3D7_0801300","CHT1:PF3D7_1252200", "null:PF3D7_0607800", "PLP4:PF3D7_0819400", "null:PF3D7_0824100", "MUS81:PF3D7_1449400", "SOAP:PF3D7_1404300", "null:PF3D7_1243300", "PSOP1:PF3D7_0721700", "null:PF3D7_1236200", "null:PF3D7_0403800", "H3:PF3D7_0610400", "null:PF3D7_0518900", "CDPK3:PF3D7_0310100", "null:PF3D7_0720300", "PIMMS43:PF3D7_0620000", "null:PF3D7_1418300", "null:PF3D7_0408800", "null:PF3D7_1121100", "GAMER:PF3D7_0805200", "null:PF3D7_0112100", "P25:PF3D7_1031000", "H2B:PF3D7_1105100", "null:PF3D7_0519200", "RPB9:PF3D7_0110400", "null:PF3D7_1349900", "H3.3:PF3D7_0617900", "null:PF3D7_0518000", "TTL:PF3D7_0514000", "null:PF3D7_1454900", "P12:PF3D7_0612700", "CPR:PF3D7_1450300", "null:PF3D7_1248400")
+pheatmap(heatmap_matrix[ap_PF3D7_1143100, ], color = plotcol[pst.ord], cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "complete", fontsize = 5, silent = F, cellwidth = 0.2, cellheight = 6.5, clustering_distance_rows = "canberra", show_rownames = T, scale = "row")
+
+ap_PF3D7_0516800 <- c("ApiAP2:PF3D7_0516800", "null:PF3D7_1230000", "null:PF3D7_1213400", "null:PF3D7_1312100", "RIF:PF3D7_0900500", "null:PF3D7_1108100")
+pheatmap(heatmap_matrix[ap_PF3D7_0516800, ], color = plotcol[pst.ord], cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "complete", fontsize = 8, silent = F, cellwidth = 0.2, cellheight = 15, clustering_distance_rows = "correlation", show_rownames = T, scale = "row")
+
+ap_PF3D7_0420300 <- c("ApiAP2:PF3D7_0420300", "LRR11:PF3D7_1123200", "null:PF3D7_1330100", "null:PF3D7_0825100", "null:PF3D7_0605600", "PSOP24:PF3D7_0108700", "null:PF3D7_1439100", "null:PF3D7_1424400", "null:PF3D7_0112600", "null:PF3D7_0822000", "DDX51:PF3D7_0405000", "null:PF3D7_0708200", "null:PF3D7_0312000", "null:PF3D7_1446000", "null:PF3D7_0906800", "SKA2:PF3D7_0307500", "null:PF3D7_0502700", "YKT6.1:PF3D7_0910600", "COQ5:PF3D7_0204900", "null:PF3D7_1023400", "PK7:PF3D7_0213400", "RPF1:PF3D7_0921800", "RPN11:PF3D7_1368100", "null:PF3D7_0313300", "null:PF3D7_1350000")
+pheatmap(heatmap_matrix[ap_PF3D7_0420300, ], color = plotcol[pst.ord], cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "average", fontsize = 8, silent = F, cellwidth = 0.2, cellheight = 10, clustering_distance_rows = "euclidean", show_rownames = T, scale = "row")
+
+ap_PF3D7_1139300 <- c("ApiAP2:PF3D7_1139300", "RRP41:PF3D7_1427800", "null:PF3D7_0920200", "null:PF3D7_1349000", "MTFMT:PF3D7_1313200", "RPL2:PF3D7_0516900", "null:PF3D7_1314500", "SF3B2:PF3D7_1461600", "SMC3:PF3D7_0414000", "CPH1:PF3D7_0723100", "KIC8:PF3D7_1014900", "null:PF3D7_1310100", "null:PF3D7_0111300", "null:PF3D7_0828100", "ARPS10:PF3D7_1460900", "TRX3:PF3D7_0916100", "null:PF3D7_1129500", "null:PF3D7_0616700", "RIF:PF3D7_0100600", "null:PF3D7_1450200", "MED18:PF3D7_1213200", "null:PF3D7_1440500", "Obg1:PF3D7_1411600", "null:PF3D7_1310100", "null:PF3D7_0111300")
+pheatmap(heatmap_matrix[ap_PF3D7_1139300, ], color = plotcol[pst.ord], cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "average", fontsize = 8, silent = F, cellwidth = 0.2, cellheight = 10, clustering_distance_rows = "euclidean", show_rownames = T, scale = "row")
+
+ap_PF3D7_1239200 <- c("ApiAP2:PF3D7_1239200", "null:PF3D7_1131400", "null:PF3D7_0419000", "null:PF3D7_1025500", "null:PF3D7_0512400", "null:PF3D7_1005300", "null:PF3D7_1007300", "null:PF3D7_0607800", "null:PF3D7_0912600", "null:PF3D7_1232900", "null:PF3D7_1032300", "null:PF3D7_1025400", "null:PF3D7_0614900", "null:PF3D7_0407100", "null:PF3D7_1310100", "null:PF3D7_0518900", "null:PF3D7_1242500", "null:PF3D7_0932700", "null:PF3D7_1134900", "null:PF3D7_1207900", "null:PF3D7_0521800", "null:PF3D7_1137600", "null:PF3D7_0516000", "RPB9:PF3D7_0110400", "null:PF3D7_0604500", "CCR4-4:PF3D7_0319200", "null:PF3D7_0404800", "OSCP:PF3D7_1310000", "null:PF3D7_0721400", "null:PF3D7_0829700", "COQ5:PF3D7_0204900", "DPM3:PF3D7_0530750", "null:PF3D7_0530800", "null:PF3D7_1221100", "null:PF3D7_0825000", "PEPC:PF3D7_1426700", "null:PF3D7_1251800", "null:PF3D7_0909000", "null:PF3D7_1421800", "null:PF3D7_1303000", "null:PF3D7_1006500", "null:PF3D7_1006400", "null:PF3D7_1470100", "null:PF3D7_0913500", "DPH2:PF3D7_1429500", "PSH1:PF3D7_0103600", "null:PF3D7_0723200", "PfP0:PF3D7_1130200", "RPC34:PF3D7_1421400", "null:PF3D7_0812900", "null:PF3D7_1471700", "null:PF3D7_1425400", "null:PF3D7_1010500", "HSP90:PF3D7_0708400", "null:PF3D7_1114500", "null:PF3D7_1322800", "null:PF3D7_1474300", "OST1:PF3D7_0311600", "CNB:PF3D7_1451700", "null:PF3D7_1207700", "null:PF3D7_0933300", "null:PF3D7_1469800", "RPL5:PF3D7_1424100")
+pheatmap(heatmap_matrix[ap_PF3D7_1239200, ], color = plotcol[pst.ord], cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "centroid", fontsize = 4, silent = F, cellwidth = 0.2, cellheight = 5, clustering_distance_rows = "canberra", show_rownames = T, scale = "row")
+
+
+ap_PF3D7_0802100 <- c("ApiAP2:PF3D7_0802100", "null:PF3D7_0605600", "null:PF3D7_0825100", "null:PF3D7_1330100", "LRR11:PF3D7_1123200", "PK7:PF3D7_0213400", "RPF1:PF3D7_0921800", "RPN11:PF3D7_1368100", "PSOP24:PF3D7_0108700", "null:PF3D7_1439100", "DDX51:PF3D7_0405000", "null:PF3D7_0708200", "null:PF3D7_0312000", "YKT6.1:PF3D7_0910600", "COQ5:PF3D7_0204900", "null:PF3D7_1023400", "null:PF3D7_0906800", "SKA2:PF3D7_0307500", "null:PF3D7_0502700", "null:PF3D7_0313300", "null:PF3D7_1350000")
+pheatmap(heatmap_matrix[ap_PF3D7_0802100, ], color = plotcol[pst.ord], cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "single", fontsize = 5, silent = F, cellwidth = 0.2, cellheight = 8, clustering_distance_rows = "euclidean", show_rownames = T, scale = "row")
+
+png(filename = "~/Desktop/Zygote/figs/Pseudotime/new_figs/P_heatmaps/ApiAP2_target/tfs_apiap2_25cells.png", width = 40, height= 25, unit = "cm", res= 300)
+print(tfs_apiap2)
+dev.off()
+```
+
+renaming cds clusters
+```{r}
+cds$State <- factor(cds$State, levels = c("1", "2", "3"))
+cds$State <- plyr::mapvalues(cds$State, c('1','2','3') , c('State_1','State_2','State_3'))
+```
+
+convert cds to matrix
+```{r}
+gene_data <- data.frame(t(as.matrix(cds@assayData$exprs)),cluster=cds$State,check.names = F)
+average_data <- aggregate(.~cluster, gene_data, mean)
+cluster_name <- average_data[,1]
+average_data <- apply(average_data[,2:ncol(average_data)],2,as.numeric)
+rownames(average_data) <- cluster_name
+average_data <- t(average_data)
+phmat1 <- t(scale(t(average_data)))
+```
+
+
+
+
+interesing genes to plot in pseudotime hetmaps
+```{r}
+stress <- c("YHM2:PF3D7_1223800", "HSP70-3:PF3D7_1134000", "GRP94:PF3D7_1222300", "PFK9:PF3D7_0915400", "Trx-Px1:PF3D7_1438900", "nPrx:PF3D7_1027300", "HSP70:PF3D7_0818900", "TRXR:PF3D7_0923800", "GRP170:PF3D7_1344200", "UBE4B:PF3D7_0826500", "BIP:PF3D7_0917900", "PFK11:PF3D7_1128300", "B9:PF3D7_0317100", "HSP20:PF3D7_0816500", "BCKDHB:PF3D7_0504600", "MSH6:PF3D7_0505500", "TPx(Gl):PF3D7_1212000", "SOD2:PF3D7_0623500", "AOP:PF3D7_0729200")
+
+pheatmap(heatmap_matrix[stress, ], color = plotcol[pst.ord], cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "complete", fontsize = 6, silent = F, cellwidth = 0.2, cellheight = 8, clustering_distance_rows = "euclidean", show_rownames = T, scale = "row")
+
+stress <- c("PF3D7_1445000:PF3D7_1445000", "GRP94:PF3D7_1222300", "PF3D7_1119200:PF3D7_1119200", "HSP90:PF3D7_0708400", "TCTP:PF3D7_0511000", "PF3D7_1241900:PF3D7_1241900", "HSP90:PF3D7_1443900", "PK4:PF3D7_0628200", "PF3D7_0525400:PF3D7_0525400", "nPrx:PF3D7_1027300", "RNF5:PF3D7_0627300", "TRXR:PF3D7_0923800", "PF3D7_0213500:PF3D7_0213500", "1-CysPxn:PF3D7_0802200", "DHX36:PF3D7_0821300", "eIK1:PF3D7_1444500")
+
+apop <- c("AIF:PF3D7_0720400", "DRE2:PF3D7_0824600", "ARP:PF3D7_0108300", "PF3D7_1248500:PF3D7_1248500", "PF3D7_1459800:PF3D7_1459800", "MCA1:PF3D7_1354800", "MCA2:PF3D7_1438400")
+
+
+
+pheatmap(phmat1[apop, ], scale = "row",  cluster_cols = F, cluster_rows = T, show_colnames = T, clustering_method = "median", fontsize = 7, silent = F, cellwidth = 20, cellheight = 15, border_color = TRUE, color = colorRampPalette(rev(brewer.pal(n = 9, name ="RdYlBu")))(100), angle_col = 45)
+
+pheatmap(heatmap_matrix[Hist_Chrom_genes$`Gene ID`, ], color = plotcol[pst.ord], cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "complete", fontsize = 3.5, silent = F, cellwidth = 0.5, cellheight = 4, clustering_distance_rows = "euclidean", show_rownames = T, scale = "row")
+
+
+heatmap(log1p(heatmap_matrix[stress, ]), Colv = NA,
+        ColSideColors = col_state[heatclus], add.expr = TRUE, scale = "row", na.rm = TRUE, labRow = FALSE, labCol = FALSE, symm = FALSE)
+```
+
+
+
+```{r}
+egress_genes <- c("CDPK1:PF3D7_0217500", "ADF2:PF3D7_1361400", "TLP:PF3D7_0616500", "FRM1:PF3D7_0530900", "KLP8:PF3D7_1245100", "DPAP2:PF3D7_1247800", "MA:PF3D7_0316000", "RIPR:PF3D7_0323400", "PMIX:PF3D7_1430200")
+pheatmap(heatmap_matrix[egress_genes, ], color = plotcol[pst.ord], cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "median", fontsize_row =7, silent = F, cellwidth = 0.2, cellheight = 10, clustering_distance_rows = "canberra", show_rownames = T, scale = "row")
+
+
+inv_genes <- c("CDC50A:PF3D7_0719500", "CNB:PF3D7_1451700", "CelTOS:PF3D7_1216600", "PSOP7:PF3D7_1340000", "PLP3:PF3D7_0923300", "CTRP:PF3D7_0315200", "CLAG9:PF3D7_0935800", "PAT:PF3D7_0206200", "WARP:PF3D7_0801300", "HSP101:PF3D7_1116800", "SOPT:PF3D7_0507300", "CHT1:PF3D7_1252200", "PIMMS43:PF3D7_0620000", "TRXR:PF3D7_0923800", "RH5:PF3D7_0424100", "PfP2:PF3D7_0309600", "CyRPA:PF3D7_0423800", "GAMER:PF3D7_0805200")
+pheatmap(heatmap_matrix[inv_genes, ], color = plotcol[pst.ord], cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "complete", fontsize_row = 8, silent = F, cellwidth = 0.4, cellheight = 8, clustering_distance_rows = "manhattan", show_rownames = T, scale = "row")
+
+inv_genes_subset <- c("CLAG9:PF3D7_0935800", "CyRPA:PF3D7_0423800", "PSOP25:PF3D7_0620000", "SOPT:PF3D7_0507300", "GAMER:PF3D7_0805200", "TRXR:PF3D7_0923800", "CHT1:PF3D7_1252200")
+
+plot_genes_in_pseudotime(cds[inv_genes, ], ncol = 3, trend_formula = "~ sm.ns(Pseudotime, df=3)", color_by = "seurat_clusters", cell_size = 2)+ theme_bw()+theme(legend.text = element_text(size=15), axis.text = element_text(size = 15),axis.title = element_text(size = 15))+labs(x='Pseudotime',y="Relative expression") + scale_color_manual(values = col_state) +theme_classic()
+
+
+pheatmap(heatmap_matrix[inv_genes, ], color = plotcol[pst.ord], cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "complete", fontsize_row = 7, silent = F, cellwidth = 0.2, cellheight = 10, clustering_distance_rows = "canberra", show_rownames = T, scale = "row", legend_labels = TRUE)
+
+
+egrs_genes <- plot_pseudotime_heatmap(cds[inv_genes,], cluster_rows = T, cores = 1, show_rownames = TRUE, return_heatmap = TRUE,hclust_method = "ward.D2", hmcols =mypalette, norm_method = c("log"), trend_formula = "~sm.ns(Pseudotime, df=3)", num_clusters = 3)
+```
+
+
+
+```{r}
+
+meosis_genes <- c("TERT:PF3D7_1314200","SMC1:PF3D7_1130700","CAPD3:PF3D7_1135600","GyrA:PF3D7_1223300","RAD2:PF3D7_0206000","FEN1:PF3D7_0408500", "MSH2-2:PF3D7_0706700", "RAD23:PF3D7_1011700", "MLH:PF3D7_1117800", "null:PF3D7_1140300", "null:PF3D7_1250800", "MSH2-1:PF3D7_1427500", "RFC2:PF3D7_0218000", "WRN:PF3D7_1429900",  "null:PF3D7_1437200", "ORC5:PF3D7_0215800", "ORC1:PF3D7_1203000", "DMC1:PF3D7_0816800", "APE1:PF3D7_0305600", "SMC5:PF3D7_1123800", "CDPK4:PF3D7_0717500", "UBE4B:PF3D7_0826500", "RAD5:PF3D7_1343400", "NEK2:PF3D7_0525900", "PlasMei2:PF3D7_0623400", "NEK4:PF3D7_0719200", "TRZ:PF3D7_1209300", "GEX1:PF3D7_1363800", "MISFIT:PF3D7_1403800")
+
+#"3,00 TOP:PF3D7_1347100",
+
+pheatmap(heatmap_matrix[meosis_genes, ], color = plotcol[pst.ord], cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "median", fontsize_row = 8, silent = F, cellwidth = 0.2, cellheight = 10, clustering_distance_rows = "manhattan", show_rownames = T, scale = "row")
+
+DotPlot(data, features = meosis_genes, group.by = "seurat_clusters", cols = c("lightblue", "darkred"), dot.scale = 15, scale = TRUE, col.min = 0, col.max = 2)+ xlab("Meosis Genes") + ylab("Pseudotime_clusters") + theme(axis.text.x = element_text(angle = 45, hjust=1)) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 10, face = "bold", angle = 45, vjust = 1, hjust = 1),  axis.text.y = element_text(colour = "black", face = "bold", size = 15, angle = 30), legend.text = element_text(size = 10, face ="bold", colour ="black"),legend.title = element_text(size = 12, face = "bold"),panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.2), legend.position = "right")
+
+pheatmap(heatmap_matrix[meosis, ], color = mypalette, cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "complete", fontsize = 5, silent = F, cellwidth = 3, cellheight = 7)
+
+pheatmap(heatmap_matrix[inv_genes, ], color = mypalette, cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "median", fontsize = 6, silent = F, cellwidth = 3, cellheight = 10)
+ 
+cyto <- c("null:PF3D7_1024600", "PKB:PF3D7_1246900", "null:PF3D7_0605600", "null:PF3D7_1423100", "CDPK3:PF3D7_0310100", "Cap380:PF3D7_0320400", "MyoK:PF3D7_1140500", "MyoJ:PF3D7_1229800", "MyoA:PF3D7_1342600","null:PF3D7_1338900", "null:PF3D7_1211000", "null:PF3D7_0724900", "null:PF3D7_0933500", "PSOP7:PF3D7_1340000", "VPS51:PF3D7_0103100", "null:PF3D7_0109400", "null:PF3D7_0203100", "CDPK1:PF3D7_0217500", "GSK3:PF3D7_0312400", "RAB1a:PF3D7_0513800", "PI3K:PF3D7_0515300", "DCX:PF3D7_0517800", "null:PF3D7_0708000", "FIKK7.1:PF3D7_0726200", "null:PF3D7_0906400", "GLTP:PF3D7_0915800", "RECQ1:PF3D7_0918600", "DHHC3:PF3D7_1121000", "null:PF3D7_1214300", "null:PF3D7_1215100", "KLP8:PF3D7_1245100", "null:PF3D7_1316000", "DHHC8:PF3D7_1321400", "null:PF3D7_1346400", "ARK3:PF3D7_1356800", "ADF2:PF3D7_1361400", "null:PF3D7_1453400", "null:PF3D7_1434500", "ERO1:PF3D7_1124000", "DHHC5:PF3D7_1322500", "null:PF3D7_1423600", "LRR6:PF3D7_0612200", "null:PF3D7_1202300", "null:PF3D7_1223400", "null:PF3D7_1338400", "PKAr:PF3D7_1223100")
+pheatmap(heatmap_matrix[cyto, ], color = plotcol[pst.ord], cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "complete", fontsize_row = 7, silent = F, cellwidth = 0.2, cellheight = 6, clustering_distance_rows = "euclidean", show_rownames = T, scale = "row", legend_labels = TRUE)
+
+var <- rownames(diff_test_res)[grep("VAR", rownames(diff_test_res))]
+new_var <- as.data.frame(diff_test_res[var, ])
+sig_var <- rownames(subset(new_var, num_cells_expressed > 10))
+
+pheatmap(heatmap_matrix[sig_var, ], color = plotcol[pst.ord], cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "median", fontsize = 4, silent = F, cellwidth = 0.2, cellheight = 5, show_rownames = T, scale = "row", clustering_distance_rows = "euclidean")
+
+rif <- rownames(diff_test_res)[grep("RIF", rownames(diff_test_res))]
+new_rif <- as.data.frame(diff_test_res[rif, ])
+sig_rif <- rownames(subset(new_rif, num_cells_expressed > 10))
+
+pheatmap(heatmap_matrix[sig_rif, ], color = plotcol[pst.ord], cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "median", fontsize = 10, silent = F, cellwidth = 0.2, cellheight = 15, show_rownames = T, scale = "row", clustering_distance_rows = "euclidean")
+
+sur_new <- c("SURF1.1:PF3D7_0113100", "SURF1.3:PF3D7_0115000", "SURF4.1:PF3D7_0402200", "SURF8.3:PF3D7_0800700", "SURF8.2:PF3D7_0830800", "SURF8.1:PF3D7_0831100", "SURF13.1:PF3D7_1301800")
+pheatmap(heatmap_matrix[sur_new, ], color = plotcol[pst.ord], cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "median", fontsize = 10, silent = F, cellwidth = 0.2, cellheight = 10, show_rownames = T, scale = "row", clustering_distance_rows = "euclidean")
+
+
+
+plot_pseudotime_heatmap(cds[meosis,], cluster_rows = T, cores = 1, show_rownames = TRUE, return_heatmap = TRUE,hclust_method = "ward.D2", hmcols =mypalette, norm_method = c("log"), trend_formula = "~sm.ns(Pseudotime, df=3)", num_clusters = 3) 
+```
+
+DEG between state 1 & 2 in Pseudotime trajetory 
+```{r}
+cds_filtered <- cds[expressed_genes, ]
+my_genes <- row.names(subset(fData(cds_filtered), gene_short_name %in% c("TRX1:PF3D7_1457200", "nPrx:PF3D7_1027300","GRP94:PF3D7_1222300", "PFK11:PF3D7_1128300", "RAD14:PF3D7_0710400", "NEK2:PF3D7_0525900", "DMC1:PF3D7_0816800", "RAD5:PF3D7_1343400", "RAD54:PF3D7_0803400","RFC2:PF3D7_0218000", "CND1:PF3D7_1403100", "ORC1:PF3D7_1203000", "null:PF3D7_0503200", "SMC1:PF3D7_1130700", "ORC2:PF3D7_0705300", "GyrA:PF3D7_1223300", "null:PF3D7_0914800", "SMC3:PF3D7_0414000", "null:PF3D7_1453400", "ERCC1:PF3D7_0203300", "ERCC4:PF3D7_1368800", "TERT:PF3D7_1314200", "RAD14:PF3D7_0710400","WRN:PF3D7_1429900", "null:PF3D7_0305600")))
+cds_subset <- cds_filtered[my_genes, ]
+#plot_genes_branched_pseudotime(cds_subset, branch_point = 1, color_by = "State", ncol = 2)
+diff_test_res_2 <- differentialGeneTest(cds_subset,
+                    fullModelFormulaStr = "~State")
+plot_genes_jitter(cds_subset, grouping = "State", color_by = "State", cell_size = 3)+scale_color_manual(values = col_state)+ theme_bw()+theme(legend.text = element_text(size=15), axis.text = element_text(size = 15),axis.title = element_text(size = 15))+labs(x='Cell State',y="Expression Level")
+
+full_model_fits <- fitModel(cds_subset,  modelFormulaStr = "~State")
+reduced_model_fits <- fitModel(cds_subset, modelFormulaStr = "~1")
+diff_test_res <- compareModels(full_model_fits, reduced_model_fits)
+diff_test_res
+
+branch_1 <- plot_genes_branched_heatmap(cds[row.names(subset(BEAM_res, qval < 1e-4)),], branch_point = 1, branch_states = NULL, cluster_rows = TRUE, hclust_method = "ward.D2", num_clusters = 3, hmcols = mypalette, branch_colors = c("#979797", "#F05662", "#7990C8"), show_rownames = TRUE, use_gene_short_name = TRUE, scale_max = 2, scale_min = -2, norm_method = c("log"), trend_formula = "~sm.ns(Pseudotime, df=3)* Branch", cores = 1)
+pheatmap(heatmap_matrix[row.names(subset(BEAM_res, qval < 1e-4)),], branch_point=1, color = mypalette, cluster_cols = F, breaks = bks, cluster_rows = T, show_colnames = F, clustering_method = "median", fontsize = 6, silent = F, cellwidth = 3, cellheight = 5)
+
+```
+
+
+plotting variables over the Pseudotime not used 
+```{r}
+pseudotime_monocle <- as.data.frame(cds@phenoData@data)
+cds$Pseudotime <- pseudotime_monocle$Pseudotime
+ggplot(pseudotime_monocle, aes(x =Pseudotime, y=Timepoint,  col = factor(Timepoint))) + geom_quasirandom(groupOnX = FALSE) + scale_color_manual(values = col_tp) + xlab("Pseudotime") + ylab("Timepoints")
+ggplot(pseudotime_monocle, aes(x =Pseudotime, y=Timepoint,  col = factor(Timepoint))) + geom_quasirandom(groupOnX = FALSE)+ scale_color_manual(values = col_state)
+ggplot(pseudotime_monocle, aes(x =Pseudotime, y=seurat_clusters,  col = factor(seurat_clusters))) + geom_quasirandom(groupOnX = FALSE)+ scale_color_manual(values = col_state)
+ggplot(pseudotime_monocle, aes(x =Pseudotime, y=Timepoint,  col = factor(Timepoint))) + geom_boxplot() + scale_color_manual(values = col_tp) +theme_classic()
+
+ggplot(pseudotime_monocle, aes(x =Pseudotime, y=seurat_clusters,  col = factor(seurat_clusters))) + geom_quasirandom(groupOnX = FALSE)+ scale_color_manual(values = col_state)+ geom_text(aes(label = State), show.legend = T, check_overlap = T, vjust = 0, nudge_y = 0.2)
+```
+
+investigating state_2 cells-suspected dying cells? ARP gene check 
+```{r}
+s2_cells <- data.frame(cds@phenoData@data[cds@phenoData@data$State==2, ])
+ggplot(s2_cells, aes(x=seurat_clusters, y=nFeature_RNA, fill= nCount_RNA)) +geom_bar(width = 0.5, stat = "identity")
+s2_data <- data.frame(ds.counts[, rownames(s2_cells)])
+
+```
+
+slingshot dataframe to track cells over pseudotime 
+```{r}
+sling_df <- data.frame(sce@colData$slingshot)
+sling_df$clusters <- clustering
+sling_df$Timepoints <- ds.ds$Timepoint
+sling_df$seurat_clusters <- ds.ds$seurat_clusters
+sling_df$nCount_RNA <- ds.ds$nCount_RNA
+
+
+
+p1 <- ggplot(sling_df, aes(x = pseudotime.curve1, y = clusters, col = clustering)) + geom_quasirandom(groupOnX = FALSE, size =3)+ scale_color_manual(values = col_state) + xlab("Pseudotime") + ylab("Sling. Clusters") + theme_classic() +  labs( color = "Sling. clusters") +  theme(axis.text.x = element_text( hjust=1)) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 20),  axis.text.y = element_text(colour = "black", size = 20, angle = 1), legend.text = element_text(size = 15, face ="bold", colour ="black"),legend.title = element_text(size = 12, face = "bold"),panel.background = element_blank(), panel.border = element_rect(colour = "white", fill = NA, size = 1.2), legend.position = "right")
+
+p2 <- ggplot(sling_df, aes(x = pseudotime.curve1, y = Timepoints, col = Timepoints)) + geom_quasirandom(groupOnX = FALSE, size = 3)+ scale_color_manual(values = col_tp) + xlab("Pseudotime") + ylab("Time points") + theme_classic()+  labs( color = "Time points") +  theme(axis.text.x = element_text( hjust=1)) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 20),  axis.text.y = element_text(colour = "black", size = 20, angle = 1), legend.text = element_text(size = 15, face ="bold", colour ="black"),legend.title = element_text(size = 12, face = "bold"),panel.background = element_blank(), panel.border = element_rect(colour = "white", fill = NA, size = 1.2), legend.position = "right")
+
+
+cluster_order <- c('C_3','C_1','C_0', 'C_2','C_4')
+sling_df$seurat_clusters <- factor(sling_df$seurat_clusters, levels = cluster_order)
+col_cluster <- setNames(c('purple3','orange','red3','green3','blue3','magenta','#C16200','#71226e'), cluster_order)
+
+p3 <- ggplot(sling_df, aes(x = pseudotime.curve1, y = seurat_clusters, col = seurat_clusters)) + geom_quasirandom(groupOnX = FALSE, size = 3)+ scale_color_manual(values = col_cluster) + xlab("Pseudotime") + ylab("Seurat clusters") + theme_classic()+  labs( color = "Clusters") +  theme(axis.text.x = element_text( hjust=1)) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 20),  axis.text.y = element_text(colour = "black", size = 20, angle = 1), legend.text = element_text(size = 15, face ="bold", colour ="black"),legend.title = element_text(size = 12, face = "bold"),panel.background = element_blank(), panel.border = element_rect(colour = "white", fill = NA, size = 1.2), legend.position = "right")
+
+pw <- cowplot::plot_grid(p1, p2, p3 )
+
+```
+
+#######################################################################################
+
+
+
+
+
+
+
+
+imaging data analysis
+```{r}
+img_p1 <- ggplot(img, aes(x =Cluster, y=log(Intensity.sum),  col = Cluster)) + geom_boxplot( size = 0.5)+ scale_color_manual(values = col_state) + xlab("Cluster") + ylab("Normalized Intensity") + theme_classic()
+
+img_p2 <- ggplot(img, aes(x =Cluster, y=log(Volume),  col = Cluster)) + geom_boxplot( size = 0.5)+ scale_color_manual(values = col_state) + xlab("Cluster") + ylab("Normalized Volume")+ theme_classic()
+
+img$cor_int_vol <- cor(img$Intensity.sum, img$Volume, method = c("pearson", "kendall", "spearman"))
+res <- cor.test(img$Intensity.sum, img$Volume, method = c("pearson"))
+
+img_p3 <- ggplot(img, aes(x =log(Volume), y=log(Intensity.sum),  col = Cluster)) + geom_point( size = 2)+ scale_color_manual(values = col_state) + xlab("Volume") + ylab(" Intensity Sum")
+
+img_all <- cowplot::plot_grid(img_p1, img_p2, img_p3)
+
+ggplot(img, aes(x =log(Volume), y=log(Intensity.sum),  col = factor(Cluster))) + geom_point( size = 2)+ scale_color_manual(values = col_state) + xlab("Log-trans Volume") + ylab("Log-trans Intensity Sum") + geom_smooth(method = lm)
+plot(gig)
+legend(x="right", legend = "0.97")
+```
+
+
+```{r}
+bas <- match(rownames(img), rownames(sling_df))
+img$seurat_clusters <- paste(sling_df$seurat_clusters[bas])
+
+ggplot(img, aes(x =seurat_clusters, y=log(Intensity.sum),  col = seurat_clusters)) + geom_boxplot( size = 0.5)+ scale_color_manual(values = col_state) + xlab("Seurat Cluster") + ylab("Normalized Intensity") + theme_classic()
+
+ggplot(img, aes(x =Timepoint, y=log(Intensity.sum),  col = Timepoint)) + geom_boxplot( size = 0.5)+ scale_color_manual(values = col_tp) + xlab("Timepoints") + ylab("Normalized Intensity") + theme_classic()
+
+ggplot(img, aes(x =Cluster, y=as.numeric(nCount_RNA)), fill = as.factor(Cluster)) + geom_bar( stat = "identity", width = 0.5) + scale_color_manual(values = col_state) + xlab("Pseudotime clusters") + ylab("Transcripts Abundance") + theme_classic()
+
+write.csv(img, file = "~/Desktop/Zygote/figs/Pseudotime/img_data.csv")
+```
+
+producing bar plots for images 
+```{r}
+img <- read.csv(file = "~/Desktop/Zygote/figs/Pseudotime/img_data.csv", row.names = 1, header = T)
+int_sum <- img %>% group_by(seurat_clusters) %>% summarise(n=n(), mean=mean(Intensity.sum), sd=sd(Intensity.sum)) %>% mutate(se=sd/sqrt(n)) %>% mutate(ic=se * qt((1-0.05)/2 + 0.5, n-1))
+
+Vol_sum <- img %>% group_by(seurat_clusters) %>% summarise(n=n(), mean=mean(Volume), sd=sd(Volume)) %>% mutate(se=sd/sqrt(n)) %>% mutate(ic=se * qt((1-0.05)/2 + 0.5, n-1))
+
+Area_sum <- img %>% group_by(seurat_clusters) %>% summarise(n=n(), mean=mean(Area), sd=sd(Area)) %>% mutate(se=sd/sqrt(n)) %>% mutate(ic=se * qt((1-0.05)/2 + 0.5, n-1))
+
+trans_sum <- img %>% group_by(seurat_clusters) %>% summarise(n=n(), mean=mean(nCount_RNA), sd=sd(nCount_RNA)) %>% mutate(se=sd/sqrt(n)) %>% mutate(ic=se * qt((1-0.05)/2 + 0.5, n-1))
+
+trans_sum2 <- sling_df %>% group_by(seurat_clusters) %>% summarise(n=n(), mean=mean(as.numeric(nCount_RNA)), sd=sd(as.numeric(nCount_RNA))) %>% mutate(se=sd/sqrt(n)) %>% mutate(ic=se * qt((1-0.05)/2 + 0.5, n-1))
+
+ggplot(Vol_sum, aes(x=seurat_clusters, y=mean, col=seurat_clusters )) +geom_bar(width = 0.5, stat = "identity", fill="grey") +scale_color_manual(values = col_state) + geom_errorbar( aes(x=seurat_clusters, ymin=mean-se, ymax=mean+se), width=0.2, colour="black", size=1) + theme_classic() +  theme(axis.text.x = element_text(hjust=1)) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 15, vjust = 1, hjust = 1),  axis.text.y = element_text(colour = "black",size = 15), legend.text = element_text(size = 15, face ="bold", colour ="black"),legend.title = element_text(size = 12),panel.background = element_blank(), panel.border = element_rect(colour = "white", fill = NA, size = 1.2), legend.position = "right") + labs(x= "Clusters", y="Volume mean")
+
+
+
+ggplot(int_sum, aes(x=seurat_clusters, y=mean, col=seurat_clusters )) +geom_bar(width = 0.5, stat = "identity", fill="grey") +scale_color_manual(values = col_state) + geom_errorbar( aes(x=seurat_clusters, ymin=mean-se, ymax=mean+se), width=0.2, colour="black", size=1) + theme_classic() +  theme(axis.text.x = element_text(hjust=1)) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 15, vjust = 1, hjust = 1),  axis.text.y = element_text(colour = "black",size = 15), legend.text = element_text(size = 15, face ="bold", colour ="black"),legend.title = element_text(size = 12),panel.background = element_blank(), panel.border = element_rect(colour = "white", fill = NA, size = 1.2), legend.position = "right") + labs(x= "Clusters", y="Flouriscence Int. mean")
+
+
+
+ggplot(trans_sum2, aes(x=seurat_clusters, y=mean, col=seurat_clusters )) +geom_bar(width = 0.5, stat = "identity", fill="grey") +scale_color_manual(values = col_state) + geom_errorbar( aes(x=seurat_clusters, ymin=mean-se, ymax=mean+se), width=0.2, colour="black", size=1) + theme_classic() +  theme(axis.text.x = element_text(hjust=1)) + theme(legend.key=element_blank(), axis.text.x = element_text(colour = "black", size = 15, vjust = 1, hjust = 1),  axis.text.y = element_text(colour = "black",size = 15), legend.text = element_text(size = 15, face ="bold", colour ="black"),legend.title = element_text(size = 12),panel.background = element_blank(), panel.border = element_rect(colour = "white", fill = NA, size = 1.2), legend.position = "right") + labs(x= "Clusters", y="mRNA abundance")
+
+
+ggplot(Area_sum) + geom_bar( aes(x=seurat_clusters, y=mean), stat="identity", fill="black", width =0.5) + geom_errorbar( aes(x=seurat_clusters, ymin=mean-se, ymax=mean+se), width=0.2, colour="orange", size=0.5)+ ylab("Area mean") + theme_classic()
+
+```
+
+for Pseudotime Clusters##imaging parameters
+```{r}
+int_sum <- img %>% group_by(Cluster) %>% summarise(n=n(), mean=mean(Intensity.sum), sd=sd(Intensity.sum)) %>% mutate(se=sd/sqrt(n)) %>% mutate(ic=se * qt((1-0.05)/2 + 0.5, n-1))
+
+Vol_sum <- img %>% group_by(Cluster) %>% summarise(n=n(), mean=mean(Volume), sd=sd(Volume)) %>% mutate(se=sd/sqrt(n)) %>% mutate(ic=se * qt((1-0.05)/2 + 0.5, n-1))
+
+Area_sum <- img %>% group_by(Cluster) %>% summarise(n=n(), mean=mean(Area), sd=sd(Area)) %>% mutate(se=sd/sqrt(n)) %>% mutate(ic=se * qt((1-0.05)/2 + 0.5, n-1))
+
+trans_sum <- img %>% group_by(Cluster) %>% summarise(n=n(), mean=mean(nCount_RNA), sd=sd(nCount_RNA)) %>% mutate(se=sd/sqrt(n)) %>% mutate(ic=se * qt((1-0.05)/2 + 0.5, n-1))
+
+trans_sum2 <- sling_df %>% group_by(clusters) %>% summarise(n=n(), mean=mean(as.numeric(nCount_RNA)), sd=sd(as.numeric(nCount_RNA))) %>% mutate(se=sd/sqrt(n)) %>% mutate(ic=se * qt((1-0.05)/2 + 0.5, n-1))
+
+ggplot(Vol_sum) + geom_bar( aes(x=Cluster, y=mean), stat="identity", fill="grey", width =0.3) + geom_errorbar( aes(x=seurat_clusters, ymin=mean-se, ymax=mean+se), width=0.2, colour="black", size=0.5)+ ylab("Volume mean") + theme_classic()
+
+
+
+p1 <- ggplot(int_sum) + geom_bar( aes(x=Cluster, y=mean), stat="identity", fill="grey", width =0.2) + geom_errorbar( aes(x=Cluster, ymin=mean-se, ymax=mean+se), width=0.2, colour="black", size=0.5)+ ylab("Flouriscence intensity mean") + theme_classic()
+
+p2 <- ggplot(Area_sum) + geom_bar( aes(x=Cluster, y=mean), stat="identity", fill="grey", width =0.2) + geom_errorbar( aes(x=Cluster, ymin=mean-se, ymax=mean+se), width=0.2, colour="black", size=0.5)+ ylab("Area mean") + theme_classic()
+
+p3 <- ggplot(trans_sum2) + geom_bar( aes(x=clusters, y=mean), stat="identity", fill="grey", width =0.2) + geom_errorbar( aes(x=clusters, ymin=mean-se, ymax=mean+se), width=0.2, colour="black", size=0.5)+ ylab("mRNA abundance") + theme_classic()
+
+pw <- cowplot::plot_grid(p1, p2, p3)
+
+```
+
+
+transcripts count to Pseudotime clusters 
+```{r}
+xm2 <- match(rownames(sling_df), rownames(ds.ds@meta.data))
+sling_df$nCount_RNA <- paste(ds.ds$nCount_RNA[xm2])
+total_RNA <- sum(as.numeric(sling_df$nCount_RNA))
+sling_df$percent_RNA <- as.numeric(sling_df$nCount_RNA) / total_RNA
+ggplot(sling_df, aes(x= seurat_clusters, y=nCount_RNA)) +geom_bar(width = 0.5, stat = "identity")
+ggplot(sling_df, aes(x =seurat_clusters, y=as.numeric(nCount_RNA),  col = seurat_clusters)) + geom_boxplot( size = 0.5)+ scale_color_manual(values = col_state) + xlab("Seurat Cluster") + ylab("Transcripts abundance") + theme_classic()
+ggplot(sling_df, aes(x =clusters, y=as.numeric(nCount_RNA),  col = clusters)) + geom_boxplot( size = 0.5)+ scale_color_manual(values = col_state) + xlab("Pseudotime Clusters") + ylab("Transcripts abundance") + theme_classic()
+
+
+img$RNA_vs_vol <- cor(as.numeric(img$nCount_RNA), img$Volume, method = c("pearson", "kendall", "spearman"))
+res <- cor.test(as.numeric(img$nCount_RNA), img$Volume, method = c("pearson"))
+
+```
+
+
+```{r}
+ggplot(img, aes(x =seurat_clusters, y=as.numeric(percent_RNA)), fill = as.factor(seurat_clusters)) + geom_bar( stat = "identity", width = 0.5) + scale_color_manual(values = col_state) + xlab("Clusters") + ylab("Transcripts Percentage") + theme_classic()
+
+ggplot(img, aes(x =seurat_clusters, y=as.numeric(nCount_RNA)), fill = as.factor(seurat_clusters)) + geom_bar( stat = "identity", width = 0.5) + scale_color_manual(values = col_state) + xlab("Clusters") + ylab("Nuclear Volume") + theme_classic()
+
+ggplot(img, aes(x =seurat_clusters, y=as.numeric(Volume)), fill = as.factor(seurat_clusters)) + geom_bar( stat = "identity", width = 0.5) + scale_color_manual(values = col_state) + xlab("Clusters") + ylab("Nuclear Volume") + theme_classic()
+
+ggplot(img, aes(x =seurat_clusters, y=as.numeric(Intensity)), fill = as.factor(seurat_clusters)) + geom_bar( stat = "identity", width = 0.5) + scale_color_manual(values = col_state) + xlab("Clusters") + ylab("Nuclear Flouriscence Intensity") + theme_classic()
+
+ggplot(img, aes(x =seurat_clusters, y=as.numeric(Area)), fill = as.factor(seurat_clusters)) + geom_bar( stat = "identity", width = 0.5) + scale_color_manual(values = col_state) + xlab("Clusters") + ylab("Nuclear Size (Area um2)") + theme_classic()
+
+
+```
+
+
+
+for other plots 
+```{r}
+png(filename = "~/Desktop/Zygote/figs/Pseudotime/new_figs/zygote/egress_new.png", width = 15, height= 10, unit = "cm", res= 300)
+print(egress_new)
+dev.off()
+```
+
+
+
+for heatmaps
+```{r}
+png(filename = "~/Desktop/Zygote/figs/Pseudotime/new_figs/P_heatmaps/Invasion_heatmap.png", width = 15, height= 15, unit = "cm", res= 300)
+print(p2)
+dev.off()
+```
+
+
