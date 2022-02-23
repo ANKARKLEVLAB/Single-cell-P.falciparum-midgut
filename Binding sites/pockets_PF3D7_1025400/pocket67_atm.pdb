@@ -1,0 +1,78 @@
+HEADER
+HEADER This is a pdb format file writen by the programm fpocket.                 
+HEADER It represents the atoms contacted by the voronoi vertices of the pocket.  
+HEADER                                                                           
+HEADER Information about the pocket    67:
+HEADER 0  - Pocket Score                      : -0.5331
+HEADER 1  - Drug Score                        : 0.0000
+HEADER 2  - Number of alpha spheres           :   109
+HEADER 3  - Mean alpha-sphere radius          : 3.8435
+HEADER 4  - Mean alpha-sphere Solvent Acc.    : 0.5919
+HEADER 5  - Mean B-factor of pocket residues  : 0.0695
+HEADER 6  - Hydrophobicity Score              : 1.5000
+HEADER 7  - Polarity Score                    :     9
+HEADER 8  - Amino Acid based volume Score     : 3.7000
+HEADER 9  - Pocket volume (Monte Carlo)       : 1058.7153
+HEADER 10  -Pocket volume (convex hull)       : 498.1644
+HEADER 11 - Charge Score                      :    -1
+HEADER 12 - Local hydrophobic density Score   : 6.0000
+HEADER 13 - Number of apolar alpha sphere     :    12
+HEADER 14 - Proportion of apolar alpha sphere : 0.1101
+ATOM   8306  OD1 ASN A 967      63.533  19.263  -1.877  0.00  0.00           O 0
+ATOM   8330   CB LEU A 970      62.154  23.518   4.486  0.00  0.00           C 0
+ATOM   8303    O ASN A 967      59.232  20.661  -2.083  0.61  5.36           O 0
+ATOM   8301    C ASN A 967      59.490  19.802  -1.252  0.00  0.00           C 0
+ATOM   8327    N LEU A 970      59.800  22.978   4.033  0.54  2.19           N 0
+ATOM   8300   CA ASN A 967      60.679  18.852  -1.494  0.00  0.00           C 0
+ATOM   8339    O ASN A 971      57.183  28.952   4.513  0.00  0.00           O 0
+ATOM   8349    N GLN A 973      56.291  27.557   8.943  0.58  6.56           N 0
+ATOM   8344   CA SER A 972      55.746  27.851   6.528  0.00  0.00           C 0
+ATOM   8337    C ASN A 971      57.666  27.930   4.999  0.00  0.00           C 0
+ATOM   8308   CA ASN A 968      57.722  20.687   0.224  0.00  0.00           C 0
+ATOM   8315    N TYR A 969      58.474  20.816   2.617  0.39  3.28           N 0
+ATOM   8309    C ASN A 968      57.472  20.938   1.734  0.00  0.00           C 0
+ATOM   8294    O GLU A 966      62.352  17.208  -0.168  0.74  6.43           O 0
+ATOM   8348   OG SER A 972      54.642  28.284   4.376  0.00  0.00           O 0
+ATOM   8338   CB ASN A 971      59.511  28.183   3.238  0.00  0.00           C 0
+ATOM   8343    N SER A 972      56.988  27.282   5.955  0.51  4.37           N 0
+ATOM   8331    O LEU A 970      61.327  26.031   3.652  0.00  0.00           O 0
+ATOM   8307    N ASN A 968      58.768  19.697  -0.123  0.43  3.28           N 0
+ATOM   8317    C TYR A 969      59.245  22.001   4.757  0.00  0.00           C 0
+ATOM   8316   CA TYR A 969      58.268  21.040   4.067  0.00  0.00           C 0
+ATOM   8318   CB TYR A 969      58.059  19.703   4.802  0.00  0.00           C 0
+ATOM   8345    C SER A 972      55.427  27.343   7.937  0.00  0.00           C 0
+ATOM   8319    O TYR A 969      59.454  21.915   5.964  0.60  7.50           O 0
+ATOM   8347    O SER A 972      54.380  26.735   8.122  0.00  0.00           O 0
+ATOM   8365    N ASN A 975      56.526  32.010  12.284  0.57  1.09           N 0
+ATOM   8369    O ASN A 975      53.773  33.442  12.487  0.00  0.00           O 0
+ATOM   8311    O ASN A 968      56.357  21.281   2.115  0.30  1.07           O 0
+ATOM   8335    N ASN A 971      59.194  25.941   4.346  0.54  2.19           N 0
+ATOM   8364  OG1 THR A 974      59.742  28.588  11.629  0.00  0.00           O 0
+ATOM   8336   CA ASN A 971      59.033  27.404   4.501  0.00  0.00           C 0
+ATOM   8333  CD1 LEU A 970      62.971  23.167   6.851  0.00  0.00           C 0
+ATOM   8342  OD1 ASN A 971      60.896  29.497   4.731  0.72  7.50           O 0
+ATOM   8341  ND2 ASN A 971      61.122  29.882   2.598  0.68  9.84           N 0
+ATOM   8334  CD2 LEU A 970      64.512  24.137   5.172  0.00  0.00           C 0
+ATOM   8340   CG ASN A 971      60.564  29.228   3.587  0.00  0.00           C 0
+ATOM   8332   CG LEU A 970      63.052  24.067   5.613  0.00  0.00           C 0
+ATOM   8321  CD1 TYR A 969      55.944  20.110   6.137  0.00  0.00           C 0
+ATOM   8346   CB SER A 972      54.535  27.596   5.603  0.00  0.00           C 0
+ATOM   8323  CE1 TYR A 969      54.575  19.888   6.380  0.00  0.00           C 0
+ATOM   8314  OD1 ASN A 968      56.831  22.259  -2.030  0.00  0.00           O 0
+ATOM   8329    C LEU A 970      60.418  25.405   4.177  0.00  0.00           C 0
+ATOM   8358    N THR A 974      57.129  29.277  11.345  0.53  2.19           N 0
+ATOM   8360    C THR A 974      57.664  31.422  12.670  0.00  0.00           C 0
+ATOM   8371  ND2 ASN A 975      58.476  35.452  10.699  0.00  0.00           N 0
+ATOM   8362    O THR A 974      58.539  32.063  13.235  0.81  6.43           O 0
+ATOM   8361   CB THR A 974      59.328  29.500  12.619  0.00  0.00           C 0
+ATOM   8352   CB GLN A 973      55.558  25.852  10.614  0.00  0.00           C 0
+ATOM   8328   CA LEU A 970      60.684  23.970   4.650  0.00  0.00           C 0
+ATOM   8359   CA THR A 974      57.834  29.911  12.491  0.00  0.00           C 0
+ATOM   8350   CA GLN A 973      55.873  27.354  10.345  0.00  0.00           C 0
+ATOM   8357  OE1 GLN A 973      54.431  23.337  11.390  0.90  7.50           O 0
+ATOM   8353    O GLN A 973      57.177  27.300  12.360  0.59  7.50           O 0
+ATOM   8351    C GLN A 973      56.789  27.980  11.418  0.00  0.00           C 0
+ATOM   8356  NE2 GLN A 973      52.373  24.041  11.479  0.68  5.47           N 0
+ATOM   8355   CD GLN A 973      53.657  24.273  11.312  0.00  0.00           C 0
+TER
+END

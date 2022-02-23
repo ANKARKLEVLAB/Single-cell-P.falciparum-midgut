@@ -1,0 +1,101 @@
+HEADER
+HEADER This is a pdb format file writen by the programm fpocket.                 
+HEADER It represents the atoms contacted by the voronoi vertices of the pocket.  
+HEADER                                                                           
+HEADER Information about the pocket    34:
+HEADER 0  - Pocket Score                      : -0.1166
+HEADER 1  - Drug Score                        : 0.0018
+HEADER 2  - Number of alpha spheres           :   116
+HEADER 3  - Mean alpha-sphere radius          : 3.5924
+HEADER 4  - Mean alpha-sphere Solvent Acc.    : 0.6058
+HEADER 5  - Mean B-factor of pocket residues  : 0.7046
+HEADER 6  - Hydrophobicity Score              : -23.0714
+HEADER 7  - Polarity Score                    :    14
+HEADER 8  - Amino Acid based volume Score     : 5.0000
+HEADER 9  - Pocket volume (Monte Carlo)       : 1179.1414
+HEADER 10  -Pocket volume (convex hull)       : 975.9509
+HEADER 11 - Charge Score                      :     4
+HEADER 12 - Local hydrophobic density Score   : 26.1053
+HEADER 13 - Number of apolar alpha sphere     :    76
+HEADER 14 - Proportion of apolar alpha sphere : 0.6552
+ATOM    179   CD LYS A  21     -33.341  20.109  49.456  0.00  0.00           C 0
+ATOM    140   CB LYS A  17     -35.819  15.804  52.658  0.00  0.00           C 0
+ATOM    181   NZ LYS A  21     -35.519  21.056  48.720  0.00  0.00           N 0
+ATOM    180   CE LYS A  21     -34.547  19.951  48.528  0.00  0.00           C 0
+ATOM    151   CG LYS A  18     -33.290  20.492  55.273  0.00  0.00           C 0
+ATOM    114    O LYS A  14     -35.532  17.331  55.953  0.70  2.14           O 0
+ATOM    115   CG LYS A  14     -39.919  17.802  56.511  0.00  0.00           C 0
+ATOM    111   CA LYS A  14     -37.694  16.555  56.547  0.00  0.00           C 0
+ATOM    146    N LYS A  18     -33.222  17.307  54.094  0.00  0.00           N 0
+ATOM    134   CD LYS A  16     -33.872   9.642  56.844  0.00  0.00           C 0
+ATOM     97   CB LYS A  12     -37.283  11.518  61.318  0.00  0.00           C 0
+ATOM    108  CG2 THR A  13     -39.323  10.888  55.673  0.00  0.00           C 0
+ATOM    136   NZ LYS A  16     -33.644   7.280  57.616  0.00  0.00           N 0
+ATOM    135   CE LYS A  16     -33.173   8.675  57.803  0.00  0.00           C 0
+ATOM    190  OE2 GLU A  22     -26.621  20.096  55.713  0.00  0.00           O 0
+ATOM    188   CD GLU A  22     -26.993  21.019  54.959  0.00  0.00           C 0
+ATOM    149   CB LYS A  18     -32.465  19.214  55.495  0.00  0.00           C 0
+ATOM    189  OE1 GLU A  22     -27.329  22.171  55.321  0.00  0.00           O 0
+ATOM    143   CD LYS A  17     -38.057  15.069  51.763  0.00  0.00           C 0
+ATOM    142   CG LYS A  17     -36.620  14.631  52.078  0.00  0.00           C 0
+ATOM    176   CB LYS A  21     -31.070  19.241  50.055  0.00  0.00           C 0
+ATOM    187   CG GLU A  22     -27.152  20.721  53.464  0.00  0.00           C 0
+ATOM    215   CE LYS A  25     -27.844  24.210  47.921  0.00  0.00           C 0
+ATOM    216   NZ LYS A  25     -28.030  25.391  48.801  0.00  0.00           N 0
+ATOM    128    N LYS A  16     -33.850  14.234  57.066  0.00  0.00           N 0
+ATOM    122   CB GLU A  15     -34.018  15.962  59.735  0.00  0.00           C 0
+ATOM    163  OE2 GLU A  19     -29.034  13.077  57.658  0.00  0.00           O 0
+ATOM    121    C GLU A  15     -33.438  15.488  57.318  0.00  0.00           C 0
+ATOM    161   CD GLU A  19     -28.689  14.211  58.080  0.00  0.00           C 0
+ATOM    162  OE1 GLU A  19     -28.163  14.407  59.194  0.59  9.64           O 0
+ATOM    127  OE2 GLU A  15     -34.147  15.581  62.477  0.70  9.64           O 0
+ATOM    160   CG GLU A  19     -28.908  15.428  57.164  0.00  0.00           C 0
+ATOM    123    O GLU A  15     -32.522  16.004  56.682  0.52  1.07           O 0
+ATOM    100   CD LYS A  12     -36.308   9.951  63.062  0.00  0.00           C 0
+ATOM    101   CE LYS A  12     -35.113   9.767  64.007  0.00  0.00           C 0
+ATOM    102   NZ LYS A  12     -35.290   8.626  64.941  0.00  0.00           N 0
+ATOM    139    C LYS A  17     -33.469  16.655  52.953  0.00  0.00           C 0
+ATOM    214   CD LYS A  25     -26.642  23.388  48.391  0.00  0.00           C 0
+ATOM     98    O LYS A  12     -35.948  12.727  58.616  0.55  2.14           O 0
+ATOM    150    O LYS A  18     -30.084  18.412  53.265  0.00  0.00           O 0
+ATOM    182    N GLU A  22     -28.056  18.761  51.216  0.00  0.00           N 0
+ATOM    125   CD GLU A  15     -34.283  16.783  62.154  0.00  0.00           C 0
+ATOM    124   CG GLU A  15     -34.361  17.137  60.663  0.00  0.00           C 0
+ATOM     99   CG LYS A  12     -36.212  11.332  62.400  0.00  0.00           C 0
+ATOM    175    C LYS A  21     -28.591  18.826  50.001  0.00  0.00           C 0
+ATOM    203   CB ASN A  24     -27.777  16.746  46.327  0.00  0.00           C 0
+ATOM    206  ND2 ASN A  24     -29.540  15.102  46.058  0.00  0.00           N 0
+ATOM    174   CA LYS A  21     -29.970  18.213  49.767  0.00  0.00           C 0
+ATOM    178   CG LYS A  21     -32.311  19.008  49.185  0.00  0.00           C 0
+ATOM    213   CG LYS A  25     -26.372  22.194  47.468  0.00  0.00           C 0
+ATOM    202    C ASN A  24     -25.660  18.168  46.368  0.00  0.00           C 0
+ATOM    204    O ASN A  24     -25.350  18.340  45.195  0.43  6.43           O 0
+ATOM     96    C LYS A  12     -37.056  12.787  59.148  0.00  0.00           C 0
+ATOM    120   CA GLU A  15     -34.254  16.360  58.274  0.00  0.00           C 0
+ATOM    113   CB LYS A  14     -38.558  17.642  57.210  0.00  0.00           C 0
+ATOM     86   CA LYS A  11     -39.657  15.805  61.198  0.00  0.00           C 0
+ATOM     89    O LYS A  11     -37.576  15.634  60.047  0.00  0.00           O 0
+ATOM     90   CG LYS A  11     -39.586  17.676  62.917  0.00  0.00           C 0
+ATOM    153   CE LYS A  18     -33.983  22.682  56.387  0.00  0.00           C 0
+ATOM    116   CD LYS A  14     -40.799  18.845  57.219  0.00  0.00           C 0
+ATOM    154   NZ LYS A  18     -33.892  23.478  57.639  0.00  0.00           N 0
+ATOM    155    N GLU A  19     -30.476  16.825  54.814  0.68  1.09           N 0
+ATOM    133   CG LYS A  16     -33.298  11.050  57.034  0.00  0.00           C 0
+ATOM    141    O LYS A  17     -33.024  17.040  51.872  0.00  0.00           O 0
+ATOM    138   CA LYS A  17     -34.369  15.415  52.980  0.00  0.00           C 0
+ATOM    172  OE2 GLU A  20     -33.102  12.137  50.192  0.00  0.00           O 0
+ATOM    177    O LYS A  21     -28.022  19.351  49.048  0.68  2.14           O 0
+ATOM    208    N LYS A  25     -25.415  19.108  47.294  0.00  0.00           N 0
+ATOM    183   CA GLU A  22     -26.694  19.221  51.510  0.00  0.00           C 0
+ATOM    103    N THR A  13     -38.176  12.760  58.419  0.00  0.00           N 0
+ATOM    152   CD LYS A  18     -33.342  21.302  56.577  0.00  0.00           C 0
+ATOM    119    N GLU A  15     -35.688  16.316  57.956  0.00  0.00           N 0
+ATOM    148    C LYS A  18     -30.821  17.892  54.095  0.00  0.00           C 0
+ATOM    167   CB GLU A  20     -30.958  13.845  50.736  0.00  0.00           C 0
+ATOM    112    C LYS A  14     -36.206  16.781  56.821  0.00  0.00           C 0
+ATOM    147   CA LYS A  18     -32.255  18.411  54.200  0.00  0.00           C 0
+ATOM    173    N LYS A  21     -30.179  16.983  50.547  0.00  0.00           N 0
+ATOM    166    C GLU A  20     -29.534  15.840  50.275  0.00  0.00           C 0
+ATOM    104   CA THR A  13     -38.136  12.743  56.946  0.00  0.00           C 0
+TER
+END
